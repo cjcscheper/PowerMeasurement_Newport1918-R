@@ -18,7 +18,8 @@ A minimal script is included:
   - UTC timestamp
 
 ### Install
-```bash
+Windows (PowerShell):
+```powershell
 python -m venv .venv
 # Windows (Git Bash):
 source .venv/Scripts/activate
