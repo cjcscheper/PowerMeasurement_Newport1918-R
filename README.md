@@ -19,3 +19,38 @@ This repository packages the LabVIEW utilities and drivers used for Newport 1918
 ## Notes
 - File contents are left unchanged from the vendor distribution; only the repository layout has been organized.
 - Keep the DLLs alongside the VIs or in your LabVIEW search path to avoid missing dependency prompts.
+
+## Python starter (Phase 1)
+If you are migrating from LabVIEW to Python, a minimal script is included:
+
+- `connect_and_log.py`: Connects through VISA, optionally probes identity, then logs:
+  - elapsed time in seconds (high precision via `perf_counter_ns` + `Decimal`)
+  - power reading (parsed as `Decimal` when possible)
+  - raw response string
+  - UTC timestamp
+
+### Install
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Discover instrument resource
+```bash
+python connect_and_log.py --list
+```
+
+### Log 100 samples at 10 Hz
+```bash
+python connect_and_log.py \
+  --resource "USB0::...::INSTR" \
+  --output logs/power_log.csv \
+  --sample-interval 0.1 \
+  --max-samples 100
+```
+
+### Notes for Newport 1918-R migration
+- The default power query in the script is `MEAS:POW?` as a placeholder.
+- If your LabVIEW VIs use a different command path (or DLL call), set `--power-query` accordingly.
+- If `*IDN?` is unsupported on your firmware/transport, set `--idn-query` to the appropriate command or ignore the warning.
