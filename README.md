@@ -21,18 +21,14 @@ A minimal script is included:
 Windows (PowerShell):
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+# Windows (Git Bash):
+source .venv/Scripts/activate
+# macOS/Linux (if needed):
+# source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Windows (Command Prompt):
-```bat
-python -m venv .venv
-.venv\Scripts\activate.bat
-python -m pip install -r requirements.txt
-```
-
-> Run `python -m venv .venv` once when setting up. If `.venv` is already active, skip that step and run only activation/pip commands.
+> Run `python -m venv .venv` once when setting up. If the virtual environment is already active, skip recreating it.
 
 ### Discover instrument resource
 ```bash
