@@ -20,9 +20,14 @@ A minimal script is included:
 ### Install
 ```bash
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# Windows (Git Bash):
+source .venv/Scripts/activate
+# macOS/Linux (if needed):
+# source .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
+
+> Run `python -m venv .venv` once when setting up. If the virtual environment is already active, skip recreating it.
 
 ### Discover instrument resource
 ```bash
