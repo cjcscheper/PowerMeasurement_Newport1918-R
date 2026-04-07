@@ -20,19 +20,19 @@ A minimal script is included:
 ### Install
 Windows (PowerShell):
 ```powershell
-if (-not (Test-Path .venv\Scripts\python.exe)) { python -m venv .venv }
+python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
 Windows (Command Prompt):
 ```bat
-if not exist ".venv\Scripts\python.exe" python -m venv .venv
+python -m venv .venv
 .venv\Scripts\activate.bat
 python -m pip install -r requirements.txt
 ```
 
-> The `if` checks above make setup idempotent: `.venv` is created only if missing.
+> Run `python -m venv .venv` once when setting up. If `.venv` is already active, skip that step and run only activation/pip commands.
 
 ### Discover instrument resource
 ```bash
