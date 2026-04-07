@@ -18,11 +18,21 @@ A minimal script is included:
   - UTC timestamp
 
 ### Install
-```bash
+Windows (PowerShell):
+```powershell
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
+
+Windows (Command Prompt):
+```bat
+python -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
+```
+
+> Run `python -m venv .venv` once when setting up. If `.venv` is already active, skip that step and run only activation/pip commands.
 
 ### Discover instrument resource
 ```bash
