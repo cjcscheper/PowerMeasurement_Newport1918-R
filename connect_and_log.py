@@ -22,13 +22,22 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import pyvisa
 
 
 @dataclass
 class Sample:
+    """Single measurement sample written to CSV.
+
+    Attributes:
+        elapsed_s: Elapsed time since logging started, in seconds.
+        power_w: Parsed power reading in watts (None when parsing fails).
+        raw_response: Raw response string returned by the instrument.
+        iso_utc: UTC timestamp in ISO-8601 format.
+    """
+
     elapsed_s: Decimal
     power_w: Optional[Decimal]
     raw_response: str
@@ -36,7 +45,15 @@ class Sample:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Connect to meter and log time + power")
+    """Create and configure the command-line parser for this script.
+
+    Returns:
+        argparse.ArgumentParser: A parser with all script options registered.
+    """
+
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        description="Connect to meter and log time + power"
+    )
     parser.add_argument("--list", action="store_true", help="List VISA resources and exit")
     parser.add_argument("--resource", help="VISA resource string for the instrument")
     parser.add_argument("--output", default="power_log.csv", help="CSV output path")
@@ -55,89 +72,174 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def decode_termination(value: str) -> str:
-    return value.encode("utf-8").decode("unicode_escape")
+    """Convert escaped termination text (e.g., ``"\\n"``) to actual characters.
+
+    Args:
+        value: User-provided string with optional escape sequences.
+
+    Returns:
+        str: Decoded termination string used by VISA read/write settings.
+    """
+
+    decoded_value: str = value.encode("utf-8").decode("unicode_escape")
+    return decoded_value
 
 
 def to_decimal_seconds(delta_ns: int) -> Decimal:
-    # Uses integer nanoseconds then decimal division to keep precision stable.
-    return Decimal(delta_ns) / Decimal("1000000000")
+    """Convert nanoseconds to Decimal seconds with stable precision.
+
+    Args:
+        delta_ns: Elapsed duration in nanoseconds.
+
+    Returns:
+        Decimal: Duration represented in seconds.
+    """
+
+    seconds: Decimal = Decimal(delta_ns) / Decimal("1000000000")
+    return seconds
 
 
 def try_parse_decimal(text: str) -> Optional[Decimal]:
-    cleaned = text.strip().split(",")[0]
+    """Try to parse the first CSV-like field from text into Decimal.
+
+    Args:
+        text: Raw response string from the instrument.
+
+    Returns:
+        Optional[Decimal]: Parsed Decimal value, or None if parsing fails.
+    """
+
+    cleaned_text: str = text.strip().split(",")[0]
     try:
-        return Decimal(cleaned)
+        parsed_value: Decimal = Decimal(cleaned_text)
+        return parsed_value
     except (InvalidOperation, ValueError):
         return None
 
 
 def format_decimal(value: Optional[Decimal]) -> str:
-    return "" if value is None else format(value, "f")
+    """Format Decimal values for CSV/console output.
+
+    Args:
+        value: Decimal value to format, or None.
+
+    Returns:
+        str: Fixed-point representation, or an empty string when value is None.
+    """
+
+    formatted_value: str = "" if value is None else format(value, "f")
+    return formatted_value
 
 
 def list_resources(rm: pyvisa.ResourceManager) -> int:
-    resources = rm.list_resources()
+    """List available VISA resources.
+
+    Args:
+        rm: Active VISA resource manager.
+
+    Returns:
+        int: Exit code (0 on success, 1 when no resources are found).
+    """
+
+    resources: tuple[str, ...] = rm.list_resources()
     if not resources:
         print("No VISA resources found.")
         return 1
 
     print("Detected VISA resources:")
-    for r in resources:
-        print(f"  - {r}")
+    for resource_name in resources:
+        print(f"  - {resource_name}")
     return 0
 
 
-def open_instrument(args: argparse.Namespace, rm: pyvisa.ResourceManager):
-    instrument = rm.open_resource(args.resource)
+def open_instrument(args: argparse.Namespace, rm: pyvisa.ResourceManager) -> Any:
+    """Open and configure the target VISA instrument.
+
+    Args:
+        args: Parsed CLI arguments containing connection and termination settings.
+        rm: Active VISA resource manager.
+
+    Returns:
+        Any: Opened VISA instrument handle.
+    """
+
+    instrument: Any = rm.open_resource(args.resource)
     instrument.timeout = args.timeout_ms
     instrument.read_termination = decode_termination(args.read_termination)
     instrument.write_termination = decode_termination(args.write_termination)
     return instrument
 
 
-def read_sample(instrument, start_ns: int, power_query: str) -> Sample:
-    raw = instrument.query(power_query).strip()
-    parsed = try_parse_decimal(raw)
-    elapsed = to_decimal_seconds(time.perf_counter_ns() - start_ns)
-    iso = datetime.now(timezone.utc).isoformat()
-    return Sample(elapsed_s=elapsed, power_w=parsed, raw_response=raw, iso_utc=iso)
+def read_sample(instrument: Any, start_ns: int, power_query: str) -> Sample:
+    """Query one power sample and package it with timing/metadata.
+
+    Args:
+        instrument: Open VISA instrument handle.
+        start_ns: Start time in nanoseconds from ``time.perf_counter_ns()``.
+        power_query: SCPI-like command used to request power.
+
+    Returns:
+        Sample: Measurement structure containing parsed and raw values.
+    """
+
+    raw_response: str = instrument.query(power_query).strip()
+    parsed_power: Optional[Decimal] = try_parse_decimal(raw_response)
+    elapsed_ns: int = time.perf_counter_ns() - start_ns
+    elapsed_seconds: Decimal = to_decimal_seconds(elapsed_ns)
+    timestamp_utc: str = datetime.now(timezone.utc).isoformat()
+
+    sample: Sample = Sample(
+        elapsed_s=elapsed_seconds,
+        power_w=parsed_power,
+        raw_response=raw_response,
+        iso_utc=timestamp_utc,
+    )
+    return sample
 
 
 def run_logging(args: argparse.Namespace) -> int:
-    rm = pyvisa.ResourceManager()
+    """Execute listing mode or live logging mode based on CLI arguments.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        int: Process exit code.
+    """
+
+    resource_manager: pyvisa.ResourceManager = pyvisa.ResourceManager()
     if args.list:
-        return list_resources(rm)
+        return list_resources(resource_manager)
 
     if not args.resource:
         print("ERROR: --resource is required unless --list is used.", file=sys.stderr)
         return 2
 
-    output_path = Path(args.output)
+    output_path: Path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"Connecting to {args.resource} ...")
     try:
-        instrument = open_instrument(args, rm)
+        instrument: Any = open_instrument(args, resource_manager)
     except Exception as exc:  # noqa: BLE001
         print(f"Failed to open resource: {exc}", file=sys.stderr)
         return 3
 
     with instrument:
-        # ID check is optional because some firmware may not support *IDN?
         try:
-            idn = instrument.query(args.idn_query).strip()
-            print(f"Instrument ID: {idn}")
+            instrument_id: str = instrument.query(args.idn_query).strip()
+            print(f"Instrument ID: {instrument_id}")
         except Exception as exc:  # noqa: BLE001
             print(f"Warning: ID query failed ({exc}). Continuing.")
 
         print(f"Logging to: {output_path}")
         print("Press Ctrl+C to stop.")
 
-        start_ns = time.perf_counter_ns()
-        samples_written = 0
+        start_ns: int = time.perf_counter_ns()
+        samples_written: int = 0
 
-        with output_path.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
+        with output_path.open("w", newline="", encoding="utf-8") as csv_file:
+            writer: csv.writer = csv.writer(csv_file)
             writer.writerow(["elapsed_s", "power_w", "raw_response", "timestamp_utc"])
 
             while True:
@@ -145,7 +247,7 @@ def run_logging(args: argparse.Namespace) -> int:
                     break
 
                 try:
-                    sample = read_sample(instrument, start_ns, args.power_query)
+                    sample: Sample = read_sample(instrument, start_ns, args.power_query)
                 except KeyboardInterrupt:
                     break
                 except Exception as exc:  # noqa: BLE001
@@ -160,7 +262,7 @@ def run_logging(args: argparse.Namespace) -> int:
                         sample.iso_utc,
                     ]
                 )
-                f.flush()
+                csv_file.flush()
 
                 samples_written += 1
                 print(
@@ -175,9 +277,15 @@ def run_logging(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
-    return run_logging(args)
+    """Parse CLI arguments and run the logger.
+
+    Returns:
+        int: Process exit code from ``run_logging``.
+    """
+
+    parser: argparse.ArgumentParser = build_parser()
+    parsed_args: argparse.Namespace = parser.parse_args()
+    return run_logging(parsed_args)
 
 
 if __name__ == "__main__":
