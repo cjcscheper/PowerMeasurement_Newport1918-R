@@ -45,10 +45,73 @@ class Sample:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Create and configure the command-line parser for this script.
+    """
+    Create and configure the command-line argument parser for this script.
+
+    A parser (specifically argparse.ArgumentParser) is an object that defines how
+    command-line arguments should be interpreted. It reads input provided when
+    running the script (e.g., via the terminal), validates it, converts it to the
+    correct types, and makes it accessible as attributes on a returned namespace.
+
+    For example:
+        python script.py --resource USB0::0x1234::0x5678::INSTR --output data.csv
+
+    The parser will interpret these flags and return an object such that:
+        args.resource == "USB0::0x1234::0x5678::INSTR"
+        args.output == "data.csv"
 
     Returns:
-        argparse.ArgumentParser: A parser with all script options registered.
+        argparse.ArgumentParser:
+            A fully configured parser with all supported command-line options.
+
+    Registered arguments:
+        --list (bool):
+            If provided, lists all available VISA resources and exits the program.
+            This is typically used to discover connected instruments.
+
+        --resource (str):
+            The VISA resource string identifying the instrument to connect to.
+            Example: "USB0::0x1234::0x5678::INSTR"
+
+        --output (str, default="power_log.csv"):
+            File path where sampled data will be written as CSV.
+
+        --sample-interval (float, default=0.1):
+            Time in seconds between consecutive measurements.
+
+        --max-samples (int, default=0):
+            Maximum number of samples to collect.
+            A value of 0 means sampling will continue indefinitely.
+
+        --idn-query (str, default="*IDN?"):
+            SCPI command used to query the instrument identity.
+
+        --power-query (str, default="MEAS:POW?"):
+            SCPI command used to query power measurements.
+            May need adjustment depending on the instrument's command set.
+
+        --timeout-ms (int, default=5000):
+            Communication timeout in milliseconds for VISA operations.
+
+        --read-termination (str, default="\\n"):
+            Character(s) indicating the end of a read response.
+
+        --write-termination (str, default="\\n"):
+            Character(s) appended to commands sent to the instrument.
+
+    Usage:
+        1. Build the parser:
+            parser = build_parser()
+
+        2. Parse command-line arguments:
+            args = parser.parse_args()
+
+        3. Access values via attributes:
+            print(args.resource)
+            print(args.sample_interval)
+
+        4. Example full command:
+            python script.py --resource USB0::... --sample-interval 0.5 --max-samples 100
     """
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -72,13 +135,55 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def decode_termination(value: str) -> str:
-    """Convert escaped termination text (e.g., ``"\\n"``) to actual characters.
+    """Convert a user-provided escaped string into its literal character form.
+
+    This function is primarily used to translate command-line input representing
+    termination characters (e.g., "\\n", "\\r\\n", "\\t") into the actual characters
+    expected by VISA communication settings.
+
+    In many CLI contexts, users must provide escape sequences as *text* (e.g., the
+    two-character string "\\" + "n"), because the shell does not automatically
+    interpret them as control characters. This function decodes those sequences
+    into their true representations (e.g., newline, carriage return).
+
+    Internally, this is achieved by encoding the string to bytes and then decoding
+    it using the "unicode_escape" codec, which interprets Python-style escape
+    sequences.
 
     Args:
-        value: User-provided string with optional escape sequences.
+        value (str):
+            A string potentially containing escape sequences. Common examples:
+                "\\n"      → newline character
+                "\\r\\n"   → carriage return + newline
+                "\\t"      → tab
+                ""         → empty string (no termination)
 
     Returns:
-        str: Decoded termination string used by VISA read/write settings.
+        str:
+            The decoded string with escape sequences converted to their literal
+            character equivalents. This value can be passed directly to VISA
+            attributes such as `read_termination` or `write_termination`.
+
+    Examples:
+        >>> decode_termination("\\n")
+        '\\n'  # actual newline character
+
+        >>> decode_termination("\\r\\n")
+        '\\r\\n'  # carriage return + newline
+
+        >>> decode_termination(";")
+        ';'  # unchanged (no escape sequences)
+
+    Notes:
+        - If the input contains invalid or incomplete escape sequences, Python's
+          "unicode_escape" decoding may raise a UnicodeDecodeError.
+        - This function assumes input follows Python-style escape conventions.
+        - Double-escaping may occur depending on how the shell passes arguments;
+          users should verify input if results are unexpected.
+
+    Typical usage:
+        term = decode_termination(args.read_termination)
+        instrument.read_termination = term
     """
 
     decoded_value: str = value.encode("utf-8").decode("unicode_escape")
@@ -86,13 +191,49 @@ def decode_termination(value: str) -> str:
 
 
 def to_decimal_seconds(delta_ns: int) -> Decimal:
-    """Convert nanoseconds to Decimal seconds with stable precision.
+    """Convert a duration from nanoseconds to seconds using Decimal for precision.
+
+    This function converts an integer duration expressed in nanoseconds into a
+    Decimal representation of seconds. It is designed to preserve numerical
+    stability and avoid floating-point rounding errors that can occur when using
+    standard `float` arithmetic—especially important in high-resolution timing,
+    logging, or scientific measurement contexts.
+
+    Instead of dividing by a floating-point value (1e9), the function performs
+    the operation entirely using Decimal objects, ensuring exact representation
+    of both the numerator and denominator.
 
     Args:
-        delta_ns: Elapsed duration in nanoseconds.
+        delta_ns (int):
+            Elapsed time in nanoseconds. Typically obtained from high-resolution
+            timers such as `time.perf_counter_ns()` or similar APIs.
 
     Returns:
-        Decimal: Duration represented in seconds.
+        Decimal:
+            The equivalent duration in seconds, represented with arbitrary
+            precision (subject to the current Decimal context).
+
+    Examples:
+        >>> to_decimal_seconds(1_000_000_000)
+        Decimal('1')
+
+        >>> to_decimal_seconds(123_456_789)
+        Decimal('0.123456789')
+
+    Notes:
+        - Using Decimal avoids cumulative precision errors that may arise when
+          repeatedly summing or logging time intervals with floats.
+        - The precision and rounding behavior are governed by the active
+          Decimal context (`decimal.getcontext()`).
+        - This is particularly useful when writing time-series data to CSV or
+          performing post-processing that requires exact decimal representation.
+
+    Typical usage:
+        start = time.perf_counter_ns()
+        ...
+        end = time.perf_counter_ns()
+        elapsed = to_decimal_seconds(end - start)
+        print(elapsed)  # precise decimal seconds
     """
 
     seconds: Decimal = Decimal(delta_ns) / Decimal("1000000000")

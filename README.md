@@ -19,7 +19,7 @@ A minimal script is included:
 
 ### Install
 Windows (PowerShell):
-```powershell
+```
 python -m venv .venv
 # Windows (Git Bash):
 source .venv/Scripts/activate
