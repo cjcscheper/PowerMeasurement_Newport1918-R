@@ -18,11 +18,21 @@ A minimal script is included:
   - UTC timestamp
 
 ### Install
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+Windows (PowerShell):
+```powershell
+if (-not (Test-Path .venv\Scripts\python.exe)) { python -m venv .venv }
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
+
+Windows (Command Prompt):
+```bat
+if not exist ".venv\Scripts\python.exe" python -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
+```
+
+> The `if` checks above make setup idempotent: `.venv` is created only if missing.
 
 ### Discover instrument resource
 ```bash
