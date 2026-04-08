@@ -241,13 +241,67 @@ def to_decimal_seconds(delta_ns: int) -> Decimal:
 
 
 def try_parse_decimal(text: str) -> Optional[Decimal]:
-    """Try to parse the first CSV-like field from text into Decimal.
+    """Attempt to extract and parse a numeric value from instrument response text.
+
+    This function processes a raw response string—typically returned by a
+    measurement instrument—and attempts to convert the first CSV-like field
+    into a `Decimal`. Many instruments return values in formats such as:
+
+        "123.45"
+        "123.45,OK"
+        "123.45,0"
+        "  123.45\\n"
+
+    The function performs minimal normalization by:
+        1. Stripping leading/trailing whitespace
+        2. Splitting on commas (",") and selecting the first field
+
+    This makes it resilient to common SCPI-style responses where additional
+    metadata or status codes follow the primary numeric value.
 
     Args:
-        text: Raw response string from the instrument.
+        text (str):
+            Raw response string from the instrument. May include whitespace,
+            newline characters, or comma-separated fields.
 
     Returns:
-        Optional[Decimal]: Parsed Decimal value, or None if parsing fails.
+        Optional[Decimal]:
+            - A `Decimal` representing the parsed numeric value if successful
+            - `None` if parsing fails due to invalid format or non-numeric content
+
+    Examples:
+        >>> try_parse_decimal("123.45")
+        Decimal('123.45')
+
+        >>> try_parse_decimal("123.45,OK")
+        Decimal('123.45')
+
+        >>> try_parse_decimal("  123.45\\n")
+        Decimal('123.45')
+
+        >>> try_parse_decimal("ERROR")
+        None
+
+        >>> try_parse_decimal("")
+        None
+
+    Notes:
+        - Parsing is strict: the extracted field must be directly interpretable
+          by `Decimal`. Scientific notation (e.g., "1.23E-3") is supported.
+        - Only the first comma-separated field is considered; additional fields
+          are ignored.
+        - If the instrument returns localized formats (e.g., commas as decimal
+          separators), this function will not handle them correctly without
+          preprocessing.
+
+    Typical usage:
+        response = instrument.query("MEAS:POW?")
+        value = try_parse_decimal(response)
+
+        if value is None:
+            log.warning("Failed to parse measurement: %r", response)
+        else:
+            process(value)
     """
 
     cleaned_text: str = text.strip().split(",")[0]
@@ -259,13 +313,55 @@ def try_parse_decimal(text: str) -> Optional[Decimal]:
 
 
 def format_decimal(value: Optional[Decimal]) -> str:
-    """Format Decimal values for CSV/console output.
+    """Format a Decimal value as a fixed-point string for output.
+
+    This function converts a `Decimal` value into a string representation suitable
+    for CSV files or console output. It ensures a consistent, non-scientific notation
+    (fixed-point) format, which is often required for interoperability with tools
+    like spreadsheets, data pipelines, or logging systems.
+
+    If the input is `None`, the function returns an empty string. This allows
+    seamless handling of missing or invalid values (e.g., failed parses) without
+    introducing placeholders like "None" or "NaN" into the output.
+
+    Internally, the function uses Python's built-in `format(..., "f")`, which:
+        - Produces a fixed-point decimal representation
+        - Avoids scientific notation (e.g., "1E-6" → "0.000001")
+        - Preserves the full precision of the Decimal value
 
     Args:
-        value: Decimal value to format, or None.
+        value (Optional[Decimal]):
+            The Decimal value to format. If `None`, it is treated as missing data.
 
     Returns:
-        str: Fixed-point representation, or an empty string when value is None.
+        str:
+            - A fixed-point string representation of the Decimal value
+            - An empty string ("") if `value` is None
+
+    Examples:
+        >>> format_decimal(Decimal("123.45"))
+        "123.45"
+
+        >>> format_decimal(Decimal("1E-6"))
+        "0.000001"
+
+        >>> format_decimal(None)
+        ""
+
+    Notes:
+        - The exact number of digits shown depends on the Decimal's internal
+          representation and the current context; no rounding or quantization
+          is applied.
+        - If consistent column width or precision is required (e.g., always
+          6 decimal places), consider applying `value.quantize(...)` before
+          formatting.
+        - Returning an empty string for None is useful for CSV output, where
+          missing fields are typically represented as empty cells.
+
+    Typical usage:
+        value = try_parse_decimal(response)
+        output_str = format_decimal(value)
+        csv_writer.writerow([timestamp, output_str])
     """
 
     formatted_value: str = "" if value is None else format(value, "f")
@@ -273,13 +369,63 @@ def format_decimal(value: Optional[Decimal]) -> str:
 
 
 def list_resources(rm: pyvisa.ResourceManager) -> int:
-    """List available VISA resources.
+    """Enumerate and display available VISA resources.
+
+    This function queries the provided PyVISA ResourceManager for all detected
+    VISA resources (i.e., connected instruments or interfaces) and prints them
+    to standard output in a human-readable format.
+
+    A VISA resource represents an addressable instrument or interface, such as:
+        - USB instruments (e.g., "USB0::0x1234::0x5678::INSTR")
+        - GPIB devices (e.g., "GPIB0::14::INSTR")
+        - Serial ports (e.g., "ASRL3::INSTR")
+        - TCP/IP instruments (e.g., "TCPIP0::192.168.0.10::INSTR")
+
+    This function is typically used as a discovery step to help users identify
+    the correct resource string required for establishing communication with
+    an instrument.
 
     Args:
-        rm: Active VISA resource manager.
+        rm (pyvisa.ResourceManager):
+            An initialized PyVISA ResourceManager instance used to query
+            available resources. This object manages communication backends
+            (e.g., NI-VISA, pyvisa-py).
 
     Returns:
-        int: Exit code (0 on success, 1 when no resources are found).
+        int:
+            Exit status code:
+                - 0: One or more resources were found and listed successfully
+                - 1: No resources were detected
+
+    Behavior:
+        - Calls `rm.list_resources()` to retrieve a tuple of resource strings
+        - Prints a header followed by each resource on its own line
+        - Prints a message if no resources are found
+
+    Examples:
+        >>> rm = pyvisa.ResourceManager()
+        >>> list_resources(rm)
+        Detected VISA resources:
+          - USB0::0x1234::0x5678::INSTR
+          - TCPIP0::192.168.0.10::INSTR
+        0
+
+        >>> # No devices connected
+        >>> list_resources(rm)
+        No VISA resources found.
+        1
+
+    Notes:
+        - The availability of resources depends on the installed VISA backend
+          and connected hardware.
+        - If using the pure Python backend (`pyvisa-py`), ensure the appropriate
+          drivers (e.g., USBTMC, serial) are available on the system.
+        - This function performs no filtering; all detected resources are shown.
+
+    Typical usage:
+        rm = pyvisa.ResourceManager()
+        exit_code = list_resources(rm)
+        sys.exit(exit_code)
     """
 
     resources: tuple[str, ...] = rm.list_resources()
@@ -294,14 +440,81 @@ def list_resources(rm: pyvisa.ResourceManager) -> int:
 
 
 def open_instrument(args: argparse.Namespace, rm: pyvisa.ResourceManager) -> Any:
-    """Open and configure the target VISA instrument.
+    """Open and configure a VISA instrument session based on CLI arguments.
+
+    This function establishes a connection to a measurement instrument using a
+    VISA resource string and applies communication settings such as timeouts
+    and termination characters. It acts as a thin abstraction over
+    `pyvisa.ResourceManager.open_resource`, augmenting it with user-provided
+    configuration from parsed command-line arguments.
+
+    A VISA instrument session represents an active communication channel to a
+    device (e.g., power meter, oscilloscope, multimeter) over interfaces such
+    as USB, GPIB, serial, or TCP/IP.
 
     Args:
-        args: Parsed CLI arguments containing connection and termination settings.
-        rm: Active VISA resource manager.
+        args (argparse.Namespace):
+            Parsed command-line arguments, typically produced by
+            `ArgumentParser.parse_args()`. The following attributes are expected:
+                - resource (str):
+                    VISA resource string identifying the instrument
+                    (e.g., "USB0::0x1234::0x5678::INSTR")
+                - timeout_ms (int):
+                    Communication timeout in milliseconds
+                - read_termination (str):
+                    Read termination sequence (may include escaped characters
+                    such as "\\n", "\\r\\n")
+                - write_termination (str):
+                    Write termination sequence (may include escaped characters)
+
+        rm (pyvisa.ResourceManager):
+            An initialized PyVISA ResourceManager used to open the connection.
 
     Returns:
-        Any: Opened VISA instrument handle.
+        Any:
+            A PyVISA instrument handle (typically a `pyvisa.resources.MessageBasedResource`
+            or subclass) that can be used to send commands (`write`, `query`)
+            and read responses from the instrument.
+
+    Behavior:
+        - Opens the instrument using the provided resource string
+        - Sets the communication timeout (`instrument.timeout`)
+        - Decodes and applies read/write termination characters using
+          `decode_termination`
+        - Returns the configured instrument handle
+
+    Raises:
+        pyvisa.errors.VisaIOError:
+            If the resource cannot be opened (e.g., invalid resource string,
+            device not connected, or backend issue)
+        AttributeError:
+            If required attributes are missing from `args`
+
+    Examples:
+        >>> args = parser.parse_args([
+        ...     "--resource", "USB0::0x1234::0x5678::INSTR",
+        ...     "--timeout-ms", "3000"
+        ... ])
+        >>> rm = pyvisa.ResourceManager()
+        >>> inst = open_instrument(args, rm)
+        >>> inst.query("*IDN?")
+        "Manufacturer,Model,Serial,1.0"
+
+    Notes:
+        - Termination characters are critical for correct communication:
+            * Read termination defines when a response is considered complete
+            * Write termination is appended to each command sent
+        - Incorrect termination settings are a common source of timeouts or
+          partial reads.
+        - The returned object should be explicitly closed when no longer needed:
+              inst.close()
+
+    Typical usage:
+        rm = pyvisa.ResourceManager()
+        inst = open_instrument(args, rm)
+
+        idn = inst.query(args.idn_query)
+        print(idn)
     """
 
     instrument: Any = rm.open_resource(args.resource)
@@ -312,15 +525,68 @@ def open_instrument(args: argparse.Namespace, rm: pyvisa.ResourceManager) -> Any
 
 
 def read_sample(instrument: Any, start_ns: int, power_query: str) -> Sample:
-    """Query one power sample and package it with timing/metadata.
+    """Acquire a single power measurement and annotate it with timing metadata.
+
+    This function performs one measurement cycle by sending a query command to
+    the instrument, parsing the returned value, and packaging it together with
+    precise timing and timestamp information into a `Sample` structure.
+
+    The timing model is relative: elapsed time is computed from a shared
+    reference (`start_ns`) using a high-resolution monotonic clock
+    (`time.perf_counter_ns`). This avoids issues with system clock adjustments
+    and ensures stable interval measurement.
 
     Args:
-        instrument: Open VISA instrument handle.
-        start_ns: Start time in nanoseconds from ``time.perf_counter_ns()``.
-        power_query: SCPI-like command used to request power.
+        instrument (Any):
+            An open PyVISA instrument handle (typically a
+            `MessageBasedResource`) that supports `.query()`.
+
+        start_ns (int):
+            Reference start time in nanoseconds, typically obtained from
+            `time.perf_counter_ns()` at the beginning of the logging session.
+
+        power_query (str):
+            SCPI-like command used to request a power measurement from the
+            instrument (e.g., "MEAS:POW?").
 
     Returns:
-        Sample: Measurement structure containing parsed and raw values.
+        Sample:
+            A structured record containing:
+                - elapsed_s (Decimal): Time since start, in seconds
+                - power_w (Optional[Decimal]): Parsed power value (None if parsing fails)
+                - raw_response (str): Raw instrument response (trimmed)
+                - iso_utc (str): UTC timestamp in ISO 8601 format
+
+    Behavior:
+        - Sends `power_query` to the instrument via `.query()`
+        - Strips trailing whitespace from the response
+        - Attempts to parse the first numeric field using `try_parse_decimal`
+        - Computes elapsed time relative to `start_ns`
+        - Captures a wall-clock UTC timestamp for traceability
+        - Returns all data as a `Sample` instance
+
+    Raises:
+        Exception:
+            Propagates any communication or query errors raised by the
+            instrument (e.g., timeouts, VISA I/O errors)
+
+    Examples:
+        >>> start = time.perf_counter_ns()
+        >>> sample = read_sample(inst, start, "MEAS:POW?")
+        >>> sample.power_w
+        Decimal('12.34')
+
+    Notes:
+        - The function does not perform retries; transient failures should be
+          handled by the caller.
+        - `elapsed_s` is monotonic and suitable for time-series analysis,
+          whereas `iso_utc` provides real-world correlation.
+        - Parsing failures do not raise exceptions; instead, `power_w` is set
+          to None to preserve the raw response for diagnostics.
+
+    Typical usage:
+        sample = read_sample(instrument, start_ns, args.power_query)
+        writer.writerow([...])
     """
 
     raw_response: str = instrument.query(power_query).strip()
@@ -339,13 +605,92 @@ def read_sample(instrument: Any, start_ns: int, power_query: str) -> Sample:
 
 
 def run_logging(args: argparse.Namespace) -> int:
-    """Execute listing mode or live logging mode based on CLI arguments.
+    """Execute either resource listing or continuous measurement logging.
+
+    This function is the main orchestration entry point for the script. It
+    interprets CLI arguments to either:
+        1. List available VISA resources (`--list` mode), or
+        2. Connect to a specified instrument and log power measurements to CSV
+
+    In logging mode, the function establishes a VISA session, optionally queries
+    the instrument identity, and enters a sampling loop that:
+        - Acquires measurements at fixed intervals
+        - Writes structured data to a CSV file
+        - Prints a live status line to the console
 
     Args:
-        args: Parsed command-line arguments.
+        args (argparse.Namespace):
+            Parsed command-line arguments. Expected attributes include:
+                - list (bool): Enable resource listing mode
+                - resource (str): VISA resource string
+                - output (str): Output CSV file path
+                - sample_interval (float): Delay between samples (seconds)
+                - max_samples (int): Maximum number of samples (0 = infinite)
+                - idn_query (str): Identity query command
+                - power_query (str): Measurement query command
 
     Returns:
-        int: Process exit code.
+        int:
+            Process exit code:
+                - 0: Success
+                - 1: No resources found (listing mode)
+                - 2: Missing required arguments
+                - 3: Failed to open instrument
+
+    Behavior:
+        Initialization:
+            - Creates a PyVISA ResourceManager
+            - Handles `--list` mode early and exits if requested
+            - Validates required arguments (e.g., `--resource`)
+            - Ensures output directory exists
+
+        Connection:
+            - Opens and configures the instrument via `open_instrument`
+            - Attempts an identification query (`*IDN?` by default)
+
+        Logging loop:
+            - Opens CSV file and writes header row
+            - Repeatedly:
+                * Reads a sample using `read_sample`
+                * Writes formatted values to CSV
+                * Flushes output to disk (minimizing data loss risk)
+                * Prints progress to console
+                * Sleeps for `sample_interval`
+
+        Termination:
+            - Stops when:
+                * `max_samples` is reached (if > 0), or
+                * User interrupts with Ctrl+C
+            - Prints summary of samples written
+
+    Error handling:
+        - Connection failures result in exit code 3
+        - Read errors are logged as warnings and skipped
+        - KeyboardInterrupt cleanly terminates the loop
+        - ID query failures are non-fatal
+
+    Examples:
+        >>> args = parser.parse_args([
+        ...     "--resource", "USB0::0x1234::0x5678::INSTR",
+        ...     "--output", "log.csv",
+        ...     "--sample-interval", "0.5",
+        ...     "--max-samples", "100"
+        ... ])
+        >>> run_logging(args)
+        0
+
+    Notes:
+        - The CSV is flushed after each write, trading performance for safety.
+        - Timing accuracy depends on `time.sleep()` and system scheduling;
+          this is not a real-time data acquisition loop.
+        - Instrument communication errors are tolerated to allow long-running
+          logging sessions.
+
+    Typical usage:
+        if __name__ == "__main__":
+            parser = build_parser()
+            args = parser.parse_args()
+            sys.exit(run_logging(args))
     """
 
     resource_manager: pyvisa.ResourceManager = pyvisa.ResourceManager()
@@ -418,10 +763,54 @@ def run_logging(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    """Parse CLI arguments and run the logger.
+    """Entry point for the CLI application.
+
+    This function is responsible for:
+        1. Constructing the command-line argument parser
+        2. Parsing user-provided CLI arguments
+        3. Dispatching execution to the main application logic (`run_logging`)
+
+    It serves as the top-level coordination layer between user input (CLI)
+    and the program’s operational behavior.
 
     Returns:
-        int: Process exit code from ``run_logging``.
+        int:
+            Process exit code returned by `run_logging`, suitable for use with
+            `sys.exit()`. Typical values include:
+                - 0: Successful execution
+                - Non-zero: Error or early termination condition
+
+    Behavior:
+        - Calls `build_parser()` to define supported CLI options
+        - Parses arguments from `sys.argv` using `parse_args()`
+        - Passes the parsed arguments to `run_logging()`
+        - Returns the resulting exit code without modification
+
+    Raises:
+        SystemExit:
+            Raised implicitly by `argparse` if argument parsing fails
+            (e.g., invalid flags or `--help` invocation)
+
+    Examples:
+        >>> if __name__ == "__main__":
+        ...     import sys
+        ...     sys.exit(main())
+
+        Command-line usage:
+            python script.py --resource USB0::... --output log.csv
+
+    Notes:
+        - This function intentionally contains minimal logic to keep the entry
+          point simple and testable.
+        - All operational behavior (I/O, logging, instrument interaction) is
+          delegated to `run_logging`.
+        - Separating `main()` from `run_logging()` improves reusability and
+          allows programmatic invocation without CLI parsing.
+
+    Typical usage:
+        # Standard Python entry point pattern
+        if __name__ == "__main__":
+            sys.exit(main())
     """
 
     parser: argparse.ArgumentParser = build_parser()
