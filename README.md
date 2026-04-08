@@ -45,6 +45,14 @@ python connect_and_log.py \
   --max-samples 100
 ```
 
+### Quick connection check (no long logging run)
+```bash
+python connect_and_log.py \
+  --resource "USB0::...::INSTR" \
+  --check
+```
+This opens the device, runs the ID query, executes one power query, and exits.
+
 If `--output` is omitted, the filename is auto-generated from the first measurement timestamp:
 `YYYY-MM-DD-hh-mm-ss_Newport1918R.csv`.
 

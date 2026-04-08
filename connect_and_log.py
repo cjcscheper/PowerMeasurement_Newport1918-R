@@ -111,13 +111,18 @@ def build_parser() -> argparse.ArgumentParser:
             print(args.sample_interval)
 
         4. Example full command:
-            python script.py --resource USB0::... --sample-interval 0.5 --max-samples 100
+            python script.py --resource USB0::--sample-interval 0.5 --max-samples 100
     """
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description="Connect to meter and log time + power"
     )
     parser.add_argument("--list", action="store_true", help="List VISA resources and exit")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Open instrument, run ID and single power query, then exit",
+    )
     parser.add_argument("--resource", help="VISA resource string for the instrument")
     parser.add_argument(
         "--output",
@@ -172,13 +177,13 @@ def decode_termination(value: str) -> str:
             attributes such as `read_termination` or `write_termination`.
 
     Examples:
-        >>> decode_termination("\\n")
+        decode_termination("\\n")
         '\\n'  # actual newline character
 
-        >>> decode_termination("\\r\\n")
+        decode_termination("\\r\\n")
         '\\r\\n'  # carriage return + newline
 
-        >>> decode_termination(";")
+        decode_termination(";")
         ';'  # unchanged (no escape sequences)
 
     Notes:
@@ -221,10 +226,10 @@ def to_decimal_seconds(delta_ns: int) -> Decimal:
             precision (subject to the current Decimal context).
 
     Examples:
-        >>> to_decimal_seconds(1_000_000_000)
+        to_decimal_seconds(1_000_000_000)
         Decimal('1')
 
-        >>> to_decimal_seconds(123_456_789)
+        to_decimal_seconds(123_456_789)
         Decimal('0.123456789')
 
     Notes:
@@ -277,19 +282,19 @@ def try_parse_decimal(text: str) -> Optional[Decimal]:
             - `None` if parsing fails due to invalid format or non-numeric content
 
     Examples:
-        >>> try_parse_decimal("123.45")
+        try_parse_decimal("123.45")
         Decimal('123.45')
 
-        >>> try_parse_decimal("123.45,OK")
+        try_parse_decimal("123.45,OK")
         Decimal('123.45')
 
-        >>> try_parse_decimal("  123.45\\n")
+        try_parse_decimal("  123.45\\n")
         Decimal('123.45')
 
-        >>> try_parse_decimal("ERROR")
+        try_parse_decimal("ERROR")
         None
 
-        >>> try_parse_decimal("")
+        try_parse_decimal("")
         None
 
     Notes:
@@ -346,13 +351,13 @@ def format_decimal(value: Optional[Decimal]) -> str:
             - An empty string ("") if `value` is None
 
     Examples:
-        >>> format_decimal(Decimal("123.45"))
+        format_decimal(Decimal("123.45"))
         "123.45"
 
-        >>> format_decimal(Decimal("1E-6"))
+        format_decimal(Decimal("1E-6"))
         "0.000001"
 
-        >>> format_decimal(None)
+        format_decimal(None)
         ""
 
     Notes:
@@ -421,15 +426,15 @@ def list_resources(rm: pyvisa.ResourceManager) -> int:
         - Prints a message if no resources are found
 
     Examples:
-        >>> rm = pyvisa.ResourceManager()
-        >>> list_resources(rm)
+        rm = pyvisa.ResourceManager()
+        list_resources(rm)
         Detected VISA resources:
           - USB0::0x1234::0x5678::INSTR
           - TCPIP0::192.168.0.10::INSTR
         0
 
-        >>> # No devices connected
-        >>> list_resources(rm)
+        # No devices connected
+        list_resources(rm)
         No VISA resources found.
         1
 
@@ -509,13 +514,13 @@ def open_instrument(args: argparse.Namespace, rm: pyvisa.ResourceManager) -> Any
             If required attributes are missing from `args`
 
     Examples:
-        >>> args = parser.parse_args([
-        ...     "--resource", "USB0::0x1234::0x5678::INSTR",
-        ...     "--timeout-ms", "3000"
-        ... ])
-        >>> rm = pyvisa.ResourceManager()
-        >>> inst = open_instrument(args, rm)
-        >>> inst.query("*IDN?")
+        args = parser.parse_args([
+            "--resource", "USB0::0x1234::0x5678::INSTR",
+            "--timeout-ms", "3000"
+        ])
+        rm = pyvisa.ResourceManager()
+        inst = open_instrument(args, rm)
+        inst.query("*IDN?")
         "Manufacturer,Model,Serial,1.0"
 
     Notes:
@@ -589,9 +594,9 @@ def read_sample(instrument: Any, start_ns: int, power_query: str) -> Sample:
             instrument (e.g., timeouts, VISA I/O errors)
 
     Examples:
-        >>> start = time.perf_counter_ns()
-        >>> sample = read_sample(inst, start, "MEAS:POW?")
-        >>> sample.power_w
+        start = time.perf_counter_ns()
+        sample = read_sample(inst, start, "MEAS:POW?")
+        sample.power_w
         Decimal('12.34')
 
     Notes:
@@ -688,13 +693,13 @@ def run_logging(args: argparse.Namespace) -> int:
         - ID query failures are non-fatal
 
     Examples:
-        >>> args = parser.parse_args([
-        ...     "--resource", "USB0::0x1234::0x5678::INSTR",
-        ...     "--output", "log.csv",
-        ...     "--sample-interval", "0.5",
-        ...     "--max-samples", "100"
-        ... ])
-        >>> run_logging(args)
+        args = parser.parse_args([
+            "--resource", "USB0::0x1234::0x5678::INSTR",
+            "--output", "log.csv",
+            "--sample-interval", "0.5",
+            "--max-samples", "100"
+        ])
+        run_logging(args)
         0
 
     Notes:
@@ -737,6 +742,23 @@ def run_logging(args: argparse.Namespace) -> int:
             print(f"Instrument ID: {instrument_id}")
         except Exception as exc:  # noqa: BLE001
             print(f"Warning: ID query failed ({exc}). Continuing.")
+
+        if args.check:
+            try:
+                sample = read_sample(
+                    instrument=instrument,
+                    start_ns=time.perf_counter_ns(),
+                    power_query=args.power_query,
+                )
+                print(
+                    "Connection check OK: "
+                    f"power={format_decimal(sample.power_w)} W "
+                    f"(raw='{sample.raw_response}')"
+                )
+                return 0
+            except Exception as exc:  # noqa: BLE001
+                print(f"Connection check failed during power query: {exc}", file=sys.stderr)
+                return 4
 
         print("Press Ctrl+C to stop.")
 
@@ -826,12 +848,12 @@ def main() -> int:
             (e.g., invalid flags or `--help` invocation)
 
     Examples:
-        >>> if __name__ == "__main__":
-        ...     import sys
-        ...     sys.exit(main())
+        if __name__ == "__main__":
+            import sys
+            sys.exit(main())
 
         Command-line usage:
-            python script.py --resource USB0::... --output log.csv
+            python script.py --resource USB0::--output log.csv
 
     Notes:
         - This function intentionally contains minimal logic to keep the entry
