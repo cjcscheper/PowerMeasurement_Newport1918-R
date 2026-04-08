@@ -56,6 +56,14 @@ This opens the device, runs the ID query, executes one power query, and exits.
 If `--output` is omitted, the filename is auto-generated from the first measurement timestamp:
 `YYYY-MM-DD-hh-mm-ss_Newport1918R.csv`.
 
+
+### LabVIEW-style USB DLL connection check (non-VISA)
+```bash
+python connect.py --list-methods
+python connect.py
+```
+Use this when you want to mirror the LabVIEW path (`UsbDllWrap.dll`) instead of PyVISA.
+
 ### Simulate + profile without hardware
 ```bash
 python simulate_and_profile.py \
