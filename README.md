@@ -4,9 +4,11 @@ This branch is focused on the Python migration workflow for Newport 1918-R measu
 
 ## Repository layout
 - `connect_and_log.py`: Python utility to connect through VISA and log power readings over time.
+- `simulate_and_profile.py`: Offline simulator + per-function timing profiler for bottleneck discovery.
 - `requirements.txt`: Python dependency list.
 - `drivers/`: Architecture-specific Newport USB driver distributions (`Win32`, `x64`, `x86Onx64`).
 - `Archive_for_ChatGPT/`: Archived LabVIEW assets kept for reference/comparison without cluttering the top-level workflow.
+- `COMMAND_MAPPING.md`: Draft migration mapping from archived LabVIEW VIs to Python/SCPI concepts.
 
 ## Python starter
 A minimal script is included:
@@ -39,9 +41,19 @@ python connect_and_log.py --list
 ```bash
 python connect_and_log.py \
   --resource "USB0::...::INSTR" \
-  --output logs/power_log.csv \
   --sample-interval 0.1 \
   --max-samples 100
+```
+
+If `--output` is omitted, the filename is auto-generated from the first measurement timestamp:
+`YYYY-MM-DD-hh-mm-ss_Newport1918R.csv`.
+
+### Simulate + profile without hardware
+```bash
+python simulate_and_profile.py \
+  --max-samples 200 \
+  --sample-interval 0.02 \
+  --output-dir logs
 ```
 
 ### Notes for Newport 1918-R migration

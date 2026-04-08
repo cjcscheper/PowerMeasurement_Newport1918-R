@@ -119,7 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--list", action="store_true", help="List VISA resources and exit")
     parser.add_argument("--resource", help="VISA resource string for the instrument")
-    parser.add_argument("--output", default="power_log.csv", help="CSV output path")
+    parser.add_argument(
+        "--output",
+        default=None,
+        help=(
+            "CSV output path. If omitted, filename is derived from first sample timestamp as "
+            "YYYY-MM-DD-hh-mm-ss_Newport1918R.csv"
+        ),
+    )
     parser.add_argument("--sample-interval", type=float, default=0.1, help="Seconds between samples")
     parser.add_argument("--max-samples", type=int, default=0, help="Number of samples (0 = infinite)")
     parser.add_argument("--idn-query", default="*IDN?", help="Identity query command")
@@ -366,6 +373,17 @@ def format_decimal(value: Optional[Decimal]) -> str:
 
     formatted_value: str = "" if value is None else format(value, "f")
     return formatted_value
+
+
+def csv_filename_from_iso_utc(iso_utc: str) -> str:
+    """Build CSV filename from a sample UTC timestamp.
+
+    Format:
+        YYYY-MM-DD-hh-mm-ss_Newport1918R.csv
+    """
+
+    timestamp: datetime = datetime.fromisoformat(iso_utc)
+    return f"{timestamp.strftime('%Y-%m-%d-%H-%M-%S')}_Newport1918R.csv"
 
 
 def list_resources(rm: pyvisa.ResourceManager) -> int:
@@ -701,8 +719,10 @@ def run_logging(args: argparse.Namespace) -> int:
         print("ERROR: --resource is required unless --list is used.", file=sys.stderr)
         return 2
 
-    output_path: Path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_arg: Optional[str] = args.output
+    output_path: Optional[Path] = Path(output_arg) if output_arg else None
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"Connecting to {args.resource} ...")
     try:
@@ -718,16 +738,15 @@ def run_logging(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"Warning: ID query failed ({exc}). Continuing.")
 
-        print(f"Logging to: {output_path}")
         print("Press Ctrl+C to stop.")
 
         start_ns: int = time.perf_counter_ns()
         samples_written: int = 0
 
-        with output_path.open("w", newline="", encoding="utf-8") as csv_file:
-            writer: csv.writer = csv.writer(csv_file)
-            writer.writerow(["elapsed_s", "power_w", "raw_response", "timestamp_utc"])
+        writer: Optional[csv.writer] = None
+        csv_file: Optional[Any] = None
 
+        try:
             while True:
                 if args.max_samples > 0 and samples_written >= args.max_samples:
                     break
@@ -740,6 +759,16 @@ def run_logging(args: argparse.Namespace) -> int:
                     print(f"Read warning: {exc}", file=sys.stderr)
                     continue
 
+                if csv_file is None:
+                    if output_path is None:
+                        output_path = Path(csv_filename_from_iso_utc(sample.iso_utc))
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    print(f"Logging to: {output_path}")
+                    csv_file = output_path.open("w", newline="", encoding="utf-8")
+                    writer = csv.writer(csv_file)
+                    writer.writerow(["elapsed_s", "power_w", "raw_response", "timestamp_utc"])
+
+                assert writer is not None
                 writer.writerow(
                     [
                         format_decimal(sample.elapsed_s),
@@ -748,6 +777,7 @@ def run_logging(args: argparse.Namespace) -> int:
                         sample.iso_utc,
                     ]
                 )
+                assert csv_file is not None
                 csv_file.flush()
 
                 samples_written += 1
@@ -757,8 +787,12 @@ def run_logging(args: argparse.Namespace) -> int:
                 )
 
                 time.sleep(args.sample_interval)
+        finally:
+            if csv_file is not None:
+                csv_file.close()
 
-    print(f"Done. Wrote {samples_written} samples to {output_path}")
+    final_output_path: str = str(output_path) if output_path is not None else "(no file written)"
+    print(f"Done. Wrote {samples_written} samples to {final_output_path}")
     return 0
 
 
