@@ -63,17 +63,44 @@ class FunctionProfiler:
         return result
 
     def print_summary(self) -> None:
-        print("\nFunction timing summary (simulation):")
-        print("name,count,avg_ms,p50_ms,p95_ms,min_ms,max_ms,total_ms")
+        print("\nFunction timing summary (simulation)")
+        headers = ["Function", "Count", "Avg (ms)", "P50 (ms)", "P95 (ms)", "Min (ms)", "Max (ms)", "Total (ms)"]
+
+        rows: list[list[str]] = []
         for name in sorted(self.records):
             record = self.records[name]
             latencies = sorted(self.samples[name])
             p50 = statistics.median(latencies) if latencies else 0.0
             p95 = latencies[int(0.95 * (len(latencies) - 1))] if latencies else 0.0
-            print(
-                f"{name},{record.count},{record.avg_ms:.6f},{p50:.6f},{p95:.6f},"
-                f"{record.min_ms:.6f},{record.max_ms:.6f},{record.total_ms:.6f}"
+            rows.append(
+                [
+                    name,
+                    str(record.count),
+                    f"{record.avg_ms:.6f}",
+                    f"{p50:.6f}",
+                    f"{p95:.6f}",
+                    f"{record.min_ms:.6f}",
+                    f"{record.max_ms:.6f}",
+                    f"{record.total_ms:.6f}",
+                ]
             )
+
+        widths = [len(header) for header in headers]
+        for row in rows:
+            for i, value in enumerate(row):
+                widths[i] = max(widths[i], len(value))
+
+        def make_row(values: list[str]) -> str:
+            padded = [value.ljust(widths[i]) for i, value in enumerate(values)]
+            return f"| {' | '.join(padded)} |"
+
+        separator = f"+-{'-+-'.join('-' * width for width in widths)}-+"
+        print(separator)
+        print(make_row(headers))
+        print(separator)
+        for row in rows:
+            print(make_row(row))
+        print(separator)
 
 
 class SimulatedInstrument:
