@@ -77,6 +77,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Try GetInstrumentList and print the first returned values.",
     )
+    parser.add_argument(
+        "--read-wavelength",
+        action="store_true",
+        help="Query a stable detector setting (wavelength) to verify correct instrument.",
+    )
+    parser.add_argument(
+        "--wavelength-query",
+        default="SENS:WAV?",
+        help="Command used when --read-wavelength is set.",
+    )
     return parser
 
 
@@ -217,6 +227,19 @@ def close_devices(lib: ctypes.WinDLL) -> None:
     lib.newp_usb_uninit_system()
 
 
+def parse_wavelength_nm(response: str) -> str:
+    token = response.split(",")[0].strip()
+    try:
+        value = float(token)
+    except ValueError:
+        return response
+
+    # Newport may return meters. If it looks like meters, convert to nm.
+    if 1e-9 <= abs(value) <= 1e-3:
+        return f"{value * 1e9:.3f} nm (converted from meters)"
+    return f"{value:.3f} nm"
+
+
 def main() -> int:
     args = build_parser().parse_args()
     try:
@@ -242,8 +265,9 @@ def main() -> int:
                     f"device_id={device_id}, model={model_num}, serial={serial_num}, count={array_size}"
                 )
 
+        chosen_device_id = choose_device_id(args.device_id, info)
+
         if args.idn_query:
-            chosen_device_id = choose_device_id(args.device_id, info)
             if chosen_device_id is None:
                 raise NewportConnectionError(
                     "Cannot run ASCII query without a device ID. "
@@ -251,6 +275,18 @@ def main() -> int:
                 )
             response = query_ascii(lib, device_id=chosen_device_id, command=args.idn_query)
             print(f"{args.idn_query} (device_id={chosen_device_id}) -> {response}")
+
+        if args.read_wavelength:
+            if chosen_device_id is None:
+                raise NewportConnectionError(
+                    "Cannot read wavelength without a device ID. "
+                    "Use --show-devices and pass --device-id <id>."
+                )
+            wav_resp = query_ascii(lib, device_id=chosen_device_id, command=args.wavelength_query)
+            print(
+                f"Wavelength ({args.wavelength_query}, device_id={chosen_device_id}) -> "
+                f"{parse_wavelength_nm(wav_resp)}"
+            )
 
         close_devices(lib)
         print("Closed Newport USB session.")
