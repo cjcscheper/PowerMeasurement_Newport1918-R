@@ -59,10 +59,10 @@ If `--output` is omitted, the filename is auto-generated from the first measurem
 
 ### LabVIEW-style USB DLL connection check (non-VISA)
 ```bash
-python connect.py --list-methods
+python connect.py --dll "C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll" --show-devices
 python connect.py
 ```
-Use this when you want to mirror the LabVIEW path (`UsbDllWrap.dll`) instead of PyVISA.
+Use this when you want to mirror the LabVIEW/vendor-driver path (`usbdll.dll`) instead of PyVISA.
 
 ### Simulate + profile without hardware
 ```bash
