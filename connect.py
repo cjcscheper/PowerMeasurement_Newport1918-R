@@ -12,16 +12,30 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import os
 import sys
 from ctypes import byref, c_bool, c_int, c_long, c_ulong, create_string_buffer
 from pathlib import Path
 from typing import Iterable
 
+
 DEFAULT_DLL_CANDIDATES = (
-    r"C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll",
     r"C:\Program Files\Newport\Newport USB Driver\Bin\usbdll.dll",
+    r"C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll",
     "Archive_for_ChatGPT/UsbDllWrap.dll",
 )
+
+
+
+def detect_architecture() -> tuple[int, int]:
+    """Return (os_bits, python_bits)."""
+    python_bits = 64 if sys.maxsize > 2**32 else 32
+    # On Windows, PROCESSOR_ARCHITEW6432 is set for 32-bit process on 64-bit OS.
+    if os.environ.get("PROCESSOR_ARCHITEW6432") or os.environ.get("PROGRAMFILES(X86)"):
+        os_bits = 64
+    else:
+        os_bits = python_bits
+    return os_bits, python_bits
 
 
 class NewportConnectionError(RuntimeError):
@@ -60,32 +74,40 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_dll_path(user_path: str | None) -> Path:
-    candidates: Iterable[str]
-    if user_path:
-        candidates = (user_path,)
-    else:
-        candidates = DEFAULT_DLL_CANDIDATES
-
-    for candidate in candidates:
-        p = Path(candidate).expanduser()
-        if p.exists():
-            return p.resolve()
-
-    raise NewportConnectionError(
-        "Could not find Newport USB DLL. Pass --dll or install Newport USB driver."
-    )
+def resolve_dll_candidates(user_path: str | None) -> list[Path]:
+    candidates: Iterable[str] = (user_path,) if user_path else DEFAULT_DLL_CANDIDATES
+    existing = [Path(candidate).expanduser().resolve() for candidate in candidates if Path(candidate).expanduser().exists()]
+    if not existing:
+        raise NewportConnectionError(
+            "Could not find Newport USB DLL. Pass --dll or install Newport USB driver."
+        )
+    return existing
 
 
-def load_library(dll_path: Path) -> ctypes.WinDLL:
+def load_library(candidates: list[Path]) -> tuple[ctypes.WinDLL, Path]:
     if sys.platform != "win32":
         raise NewportConnectionError(
             f"This script targets Windows Newport drivers. Current platform: {sys.platform}"
         )
-    try:
-        return ctypes.WinDLL(str(dll_path))
-    except OSError as exc:
-        raise NewportConnectionError(f"Failed to load DLL '{dll_path}': {exc}") from exc
+
+    load_errors: list[str] = []
+    for dll_path in candidates:
+        try:
+            return ctypes.WinDLL(str(dll_path)), dll_path
+        except OSError as exc:
+            # WinError 193 usually means 32/64-bit mismatch.
+            if getattr(exc, "winerror", None) == 193:
+                load_errors.append(
+                    f"{dll_path} -> WinError 193 (bitness mismatch: DLL vs Python)"
+                )
+                continue
+            load_errors.append(f"{dll_path} -> {exc}")
+
+    os_bits, py_bits = detect_architecture()
+    raise NewportConnectionError(
+        "Failed to load any Newport DLL candidate. "
+        f"OS={os_bits}-bit, Python={py_bits}-bit. Tried: " + "; ".join(load_errors)
+    )
 
 
 def configure_signatures(lib: ctypes.WinDLL) -> None:
@@ -172,10 +194,12 @@ def close_devices(lib: ctypes.WinDLL) -> None:
 def main() -> int:
     args = build_parser().parse_args()
     try:
-        dll_path = resolve_dll_path(args.dll)
-        print(f"Using DLL: {dll_path}")
+        os_bits, py_bits = detect_architecture()
+        print(f"System architecture: OS={os_bits}-bit, Python={py_bits}-bit")
 
-        lib = load_library(dll_path)
+        dll_candidates = resolve_dll_candidates(args.dll)
+        lib, dll_path = load_library(dll_candidates)
+        print(f"Using DLL: {dll_path}")
         configure_signatures(lib)
 
         device_count = open_devices(lib, args.product_id)
@@ -203,6 +227,8 @@ def main() -> int:
 
     except NewportConnectionError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
+        print("Hint: if you see WinError 193, use a DLL matching your Python architecture (32-bit vs 64-bit).", file=sys.stderr)
+        print("On a 64-bit OS, 32-bit Python still requires a 32-bit DLL.", file=sys.stderr)
         return 1
 
 
