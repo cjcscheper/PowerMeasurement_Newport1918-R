@@ -59,10 +59,12 @@ If `--output` is omitted, the filename is auto-generated from the first measurem
 
 ### LabVIEW-style USB DLL connection check (non-VISA)
 ```bash
-python connect.py --dll "C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll" --show-devices
-python connect.py
+python connect.py --dll "C:\Program Files\Newport\Newport USB Driver\Bin\usbdll.dll" --show-devices
+python connect.py --idn-query "*IDN?" --device-id <id_from_show_devices>
 ```
 Use this when you want to mirror the LabVIEW/vendor-driver path (`usbdll.dll`) instead of PyVISA.
+
+> `connect.py` no longer sends `*IDN?` by default. This avoids driver crashes when the wrong device ID/address is used.
 
 > If you hit `WinError 193`, your Python bitness and DLL bitness do not match.
 > Even on a 64-bit Windows OS, a 32-bit Python install must use a 32-bit DLL.

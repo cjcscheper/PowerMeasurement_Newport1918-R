@@ -63,8 +63,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--idn-query",
-        default="*IDN?",
-        help="ASCII query to verify communication after connect.",
+        default=None,
+        help="Optional ASCII query to verify communication after connect (example: '*IDN?').",
+    )
+    parser.add_argument(
+        "--device-id",
+        type=int,
+        default=None,
+        help="Optional Newport device ID/address for ASCII query. If omitted, script tries discovery.",
     )
     parser.add_argument(
         "--show-devices",
@@ -170,17 +176,37 @@ def get_instrument_list(lib: ctypes.WinDLL) -> tuple[int, int, int, int] | None:
     return (device_ids.value, model_numbers.value, serial_numbers.value, array_size.value)
 
 
+def choose_device_id(requested_device_id: int | None, instrument_info: tuple[int, int, int, int] | None) -> int | None:
+    if requested_device_id is not None:
+        return requested_device_id
+    if instrument_info is None:
+        return None
+    return instrument_info[0]
+
+
 def query_ascii(lib: ctypes.WinDLL, device_id: int, command: str) -> str:
     payload = (command + "\r\n").encode("ascii", errors="ignore")
     write_buf = ctypes.create_string_buffer(payload)
-    status = lib.newp_usb_send_ascii(c_long(device_id), write_buf, c_ulong(len(payload)))
+    try:
+        status = lib.newp_usb_send_ascii(c_long(device_id), write_buf, c_ulong(len(payload)))
+    except OSError as exc:
+        raise NewportConnectionError(
+            f"newp_usb_send_ascii crashed for device_id={device_id}. "
+            "Try --device-id from GetInstrumentList output."
+        ) from exc
     if status != 0:
         raise NewportConnectionError(f"newp_usb_send_ascii failed with status={status}")
 
     read_buf = create_string_buffer(1024)
     read_len = c_ulong(1024)
     n_read = c_ulong(0)
-    status = lib.newp_usb_get_ascii(c_long(device_id), read_buf, read_len, byref(n_read))
+    try:
+        status = lib.newp_usb_get_ascii(c_long(device_id), read_buf, read_len, byref(n_read))
+    except OSError as exc:
+        raise NewportConnectionError(
+            f"newp_usb_get_ascii crashed for device_id={device_id}. "
+            "Try --device-id from GetInstrumentList output."
+        ) from exc
     if status != 0:
         raise NewportConnectionError(f"newp_usb_get_ascii failed with status={status}")
 
@@ -205,8 +231,8 @@ def main() -> int:
         device_count = open_devices(lib, args.product_id)
         print(f"Connected/opened devices: {device_count}")
 
+        info = get_instrument_list(lib)
         if args.show_devices:
-            info = get_instrument_list(lib)
             if info is None:
                 print("GetInstrumentList not available in this DLL build.")
             else:
@@ -216,10 +242,15 @@ def main() -> int:
                     f"device_id={device_id}, model={model_num}, serial={serial_num}, count={array_size}"
                 )
 
-        if device_count > 0:
-            # Default to first USB address/device id used by Newport API.
-            response = query_ascii(lib, device_id=0, command=args.idn_query)
-            print(f"{args.idn_query} -> {response}")
+        if args.idn_query:
+            chosen_device_id = choose_device_id(args.device_id, info)
+            if chosen_device_id is None:
+                raise NewportConnectionError(
+                    "Cannot run ASCII query without a device ID. "
+                    "Use --show-devices and pass --device-id <id>."
+                )
+            response = query_ascii(lib, device_id=chosen_device_id, command=args.idn_query)
+            print(f"{args.idn_query} (device_id={chosen_device_id}) -> {response}")
 
         close_devices(lib)
         print("Closed Newport USB session.")
