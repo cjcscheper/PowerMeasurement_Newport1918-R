@@ -85,7 +85,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--wavelength-query",
         default="SENS:WAV?",
-        help="Command used when --read-wavelength is set.",
+        help="Primary command used when --read-wavelength is set.",
+    )
+    parser.add_argument(
+        "--wavelength-query-fallbacks",
+        default="WAVELENGTH?,PM:Lambda?,PM:WAVELENGTH?",
+        help="Comma-separated fallback queries if primary returns empty.",
     )
     return parser
 
@@ -227,6 +232,30 @@ def close_devices(lib: ctypes.WinDLL) -> None:
     lib.newp_usb_uninit_system()
 
 
+def split_commands(primary: str, fallbacks_csv: str) -> list[str]:
+    fallbacks = [x.strip() for x in fallbacks_csv.split(",") if x.strip()]
+    ordered = [primary.strip(), *fallbacks]
+    # preserve order, drop duplicates
+    out: list[str] = []
+    for cmd in ordered:
+        if cmd and cmd not in out:
+            out.append(cmd)
+    return out
+
+
+def query_first_nonempty(
+    lib: ctypes.WinDLL,
+    device_ids: list[int],
+    commands: list[str],
+) -> tuple[int, str, str] | None:
+    for device_id in device_ids:
+        for command in commands:
+            response = query_ascii(lib, device_id=device_id, command=command)
+            if response.strip():
+                return (device_id, command, response)
+    return None
+
+
 def parse_wavelength_nm(response: str) -> str:
     token = response.split(",")[0].strip()
     try:
@@ -277,14 +306,25 @@ def main() -> int:
             print(f"{args.idn_query} (device_id={chosen_device_id}) -> {response}")
 
         if args.read_wavelength:
-            if chosen_device_id is None:
+            command_candidates = split_commands(args.wavelength_query, args.wavelength_query_fallbacks)
+
+            if chosen_device_id is not None:
+                device_candidates = [chosen_device_id]
+                # Also try Newport-style 0..N-1 addressing if explicit ID gives no response.
+                device_candidates.extend(i for i in range(max(1, device_count)) if i != chosen_device_id)
+            else:
+                device_candidates = list(range(max(1, device_count)))
+
+            result = query_first_nonempty(lib, device_candidates, command_candidates)
+            if result is None:
                 raise NewportConnectionError(
-                    "Cannot read wavelength without a device ID. "
-                    "Use --show-devices and pass --device-id <id>."
+                    "Wavelength query returned empty for all tested device IDs/commands. "
+                    "Run with --show-devices and try --device-id 0 (or the listed id)."
                 )
-            wav_resp = query_ascii(lib, device_id=chosen_device_id, command=args.wavelength_query)
+
+            used_device_id, used_command, wav_resp = result
             print(
-                f"Wavelength ({args.wavelength_query}, device_id={chosen_device_id}) -> "
+                f"Wavelength ({used_command}, device_id={used_device_id}) -> "
                 f"{parse_wavelength_nm(wav_resp)}"
             )
 
@@ -296,6 +336,7 @@ def main() -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         print("Hint: if you see WinError 193, use a DLL matching your Python architecture (32-bit vs 64-bit).", file=sys.stderr)
         print("On a 64-bit OS, 32-bit Python still requires a 32-bit DLL.", file=sys.stderr)
+        print("If a query prints empty, try --show-devices and then --read-wavelength --device-id 0.", file=sys.stderr)
         return 1
 
 

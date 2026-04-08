@@ -69,6 +69,8 @@ Use this when you want to mirror the LabVIEW/vendor-driver path (`usbdll.dll`) i
 
 > To verify the right detector with a stable value, use `--read-wavelength` (default query: `SENS:WAV?`).
 
+> If wavelength comes back empty, the script now automatically tries fallback commands and device IDs (`0..N-1`).
+
 > If you hit `WinError 193`, your Python bitness and DLL bitness do not match.
 > Even on a 64-bit Windows OS, a 32-bit Python install must use a 32-bit DLL.
 > Try 64-bit Python with `C:\Program Files\...\usbdll.dll`, or 32-bit Python with `C:\Program Files (x86)\...\usbdll.dll`.
