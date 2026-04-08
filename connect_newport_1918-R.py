@@ -201,6 +201,17 @@ def configure_newport_function_signatures(library: ctypes.WinDLL) -> None:
     ]
     library.newp_usb_get_ascii.restype = c_long
 
+    # Optional in some Newport DLL builds. When available, this can return
+    # Newport's internal device IDs (which are not always 0..N-1).
+    if hasattr(library, "GetInstrumentList"):
+        library.GetInstrumentList.argtypes = [
+            ctypes.POINTER(c_int),
+            ctypes.POINTER(c_int),
+            ctypes.POINTER(c_int),
+            ctypes.POINTER(c_int),
+        ]
+        library.GetInstrumentList.restype = c_long
+
 
 def open_newport_devices(library: ctypes.WinDLL, product_id: int) -> int:
     """Open devices for a given USB product ID and return count of opened devices."""
@@ -266,11 +277,55 @@ def close_newport_session_safely(library: ctypes.WinDLL | None) -> None:
         pass
 
 
-def build_device_id_list(user_selected_device_id: int | None, opened_device_count: int) -> list[int]:
-    """Construct the device IDs that should be queried during this run."""
+def try_get_instrument_device_id(library: ctypes.WinDLL) -> int | None:
+    """Try to read the primary Newport device ID from GetInstrumentList.
+
+    Returns:
+        int | None: Device ID when available, otherwise None.
+    """
+
+    if not hasattr(library, "GetInstrumentList"):
+        return None
+
+    instrument_device_id = c_int(0)
+    model_number = c_int(0)
+    serial_number = c_int(0)
+    instrument_count = c_int(0)
+
+    get_list_status = library.GetInstrumentList(
+        byref(instrument_device_id),
+        byref(model_number),
+        byref(serial_number),
+        byref(instrument_count),
+    )
+
+    if get_list_status != 0:
+        return None
+
+    if instrument_count.value <= 0:
+        return None
+
+    return int(instrument_device_id.value)
+
+
+def build_device_id_list(
+    user_selected_device_id: int | None,
+    opened_device_count: int,
+    discovered_instrument_device_id: int | None,
+) -> list[int]:
+    """Construct the device IDs that should be queried during this run.
+
+    Priority order:
+    1) explicit --device-id
+    2) GetInstrumentList-discovered Newport device ID
+    3) fallback 0..opened_device_count-1
+    """
 
     if user_selected_device_id is not None:
         return [user_selected_device_id]
+
+    if discovered_instrument_device_id is not None:
+        return [discovered_instrument_device_id]
 
     if opened_device_count <= 0:
         return []
@@ -303,8 +358,21 @@ def main() -> int:
         )
         print(f"Open/connected Newport devices: {opened_device_count}")
 
+        discovered_instrument_device_id = try_get_instrument_device_id(loaded_library)
+        if discovered_instrument_device_id is not None:
+            print(
+                "Discovered Newport instrument device_id via GetInstrumentList: "
+                f"{discovered_instrument_device_id}"
+            )
+        else:
+            print(
+                "GetInstrumentList unavailable/empty; falling back to 0..N-1 probing."
+            )
+
         candidate_device_ids: list[int] = build_device_id_list(
-            parsed_arguments.device_id, opened_device_count
+            parsed_arguments.device_id,
+            opened_device_count,
+            discovered_instrument_device_id,
         )
 
         if not candidate_device_ids:
