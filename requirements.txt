@@ -1,3 +1,7 @@
+# VISA stack used by connect_and_log.py
 pyvisa>=1.14
 pyvisa-py>=0.7
+
+# Optional Windows interop dependency retained for legacy migration experiments.
+# (Not required for connect_newport_1918-R.py, which uses ctypes from stdlib.)
 pythonnet>=3.0
