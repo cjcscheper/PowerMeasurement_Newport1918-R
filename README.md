@@ -87,3 +87,17 @@ python simulate_and_profile.py \
 - The default power query in the script is `MEAS:POW?` as a placeholder.
 - If your old LabVIEW VIs used a different command path (or DLL call), set `--power-query` accordingly.
 - If `*IDN?` is unsupported on your firmware/transport, set `--idn-query` to the appropriate command or ignore the warning.
+
+
+## Interactive window layout prototype
+- `interactive_window_layout.py`: Tkinter-based UI scaffold for the future interactive window.
+  - X-axis drop-down (currently `Time`) and Y-axis drop-down (`PowerMeasurement`).
+  - Acquisition settings (sampling rate, x-axis window scale, linear/log axis mode, measure range min/max).
+  - File controls (`Browse`, `Save As`, `Load`) with OS-native file dialogs.
+  - `Start` / `Stop` controls that drive live updates in the interactive plot area (placeholder data for now).
+  - A dedicated black-box panel for future fitting workflow integration.
+
+Run it with:
+```bash
+python interactive_window_layout.py
+```
