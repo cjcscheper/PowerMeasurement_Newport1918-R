@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """Newport 1918-R connection helper (USB DLL mode, ID query only).
 
-Goal of this script:
-1) Open Newport USB devices through Newport's vendor DLL.
-2) Print how many devices were opened.
-3) Run and print an ID query (default: ``*IDN?``).
+This script is intentionally focused on *simple, practical diagnostics* for
+teams migrating from LabVIEW or vendor examples to Python.
 
-Design notes:
-- This script intentionally focuses on *essentials* only.
-- No wavelength logic is included.
-- Runtime checks are lightweight and practical:
-  - hard fail on non-Windows,
-  - architecture is reported for troubleshooting,
-  - no strict 64-bit enforcement function.
+What it does, step by step:
+1) Loads Newport's USB DLL (``usbdll.dll``).
+2) Opens devices for a configurable USB product ID.
+3) Automatically prints detected device metadata (ID/model/serial/count) when
+   ``GetInstrumentList`` is available.
+4) Sends an ASCII identity command (default ``*IDN?``) and prints the response.
+
+What it does *not* do:
+- Continuous logging.
+- Wavelength/measurement configuration.
+- Data export.
+
+This limited scope is deliberate: if connection basics are clear and stable,
+higher-level measurement workflows are much easier to debug later.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ import os
 import sys
 from ctypes import byref, c_bool, c_int, c_long, c_ulong, create_string_buffer
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Iterable
 
 
@@ -40,6 +46,30 @@ class NewportConnectionError(RuntimeError):
     - Users get one clear failure reason per run.
     """
 
+
+
+
+@dataclass(frozen=True)
+class InstrumentInfo:
+    """Human-readable snapshot of one Newport instrument entry from the driver list.
+
+    The Newport DLL function ``GetInstrumentList`` provides four integer outputs:
+    the Newport device ID, model number, serial number, and number of instruments
+    reported by the driver call. Packaging those values into this small dataclass
+    makes the code easier to follow, especially for teammates who are less familiar
+    with pointer-based C APIs and ctypes output parameters.
+
+    Attributes:
+        device_id: Address/identifier used by ASCII command functions.
+        model: Numeric model code (for example, 1918 for a 1918-R meter).
+        serial: Instrument serial number as returned by the DLL.
+        count: Number of instruments reported by the DLL call.
+    """
+
+    device_id: int
+    model: int
+    serial: int
+    count: int
 
 DEFAULT_DLL_CANDIDATES: tuple[str, ...] = (
     r"C:\Program Files\Newport\Newport USB Driver\Bin\usbdll.dll",
@@ -92,17 +122,18 @@ def parse_product_id(value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Create and configure the command-line argument parser.
+    """Create and configure all command-line options for this script.
 
-    The parser is intentionally small and focused on the essentials:
-    - choose DLL path,
-    - choose product ID,
-    - choose optional explicit device ID,
-    - choose ID query string,
-    - choose response buffer size.
+    This function exists so a non-coder can quickly scan *one place* and
+    understand what can be configured without reading low-level USB details.
+
+    Think of the parser like a "form" for terminal input:
+    - each ``add_argument`` call defines one field in that form,
+    - type conversions happen automatically (for example, text -> int),
+    - help strings are surfaced when running ``python script.py --help``.
 
     Returns:
-        argparse.ArgumentParser: Configured parser.
+        argparse.ArgumentParser: Ready-to-use parser object.
     """
 
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -136,24 +167,40 @@ def build_parser() -> argparse.ArgumentParser:
         default=1024,
         help="Read buffer size for ASCII response.",
     )
+    parser.add_argument(
+        "--show-device",
+        action="store_true",
+        default=True,
+        help=(
+            "Print GetInstrumentList details automatically (device_id/model/serial/count). "
+            "Enabled by default to make troubleshooting easier for non-coders."
+        ),
+    )
     return parser
 
 
 def resolve_dll_candidates(user_supplied_path: str | None) -> list[Path]:
-    """Resolve candidate DLL paths and return those that exist.
+    """Build a trusted list of DLL files that we can actually load.
+
+    Why this matters for non-coders:
+    - Windows hardware utilities often fail with vague errors when a path is
+      wrong. This function checks paths up front and fails with one clear
+      message if no usable DLL exists.
+    - It also keeps precedence simple: an explicit ``--dll`` path always wins.
 
     Resolution strategy:
-    1) If ``--dll`` is given, only that path is considered.
-    2) Otherwise, common Newport install locations are tried.
+    1) If ``--dll`` is provided, test only that path.
+    2) If ``--dll`` is not provided, test built-in default install paths.
+    3) Keep only paths that exist and are files.
 
     Args:
-        user_supplied_path (str | None): Value of ``--dll``.
+        user_supplied_path (str | None): Value of ``--dll`` from CLI input.
 
     Returns:
-        list[Path]: Existing candidate paths in priority order.
+        list[Path]: Existing DLL files in priority order.
 
     Raises:
-        NewportConnectionError: If no DLL candidates exist on disk.
+        NewportConnectionError: If zero candidate DLLs are found.
     """
 
     raw_candidates: Iterable[str] = (
@@ -253,7 +300,7 @@ def configure_newport_function_signatures(library: ctypes.WinDLL) -> None:
 
 
 def open_newport_devices(library: ctypes.WinDLL, product_id: int) -> int:
-    """Open Newport devices for a USB product ID and return open count.
+    """Ask the Newport driver to open devices and report how many it sees.
 
     Args:
         library (ctypes.WinDLL): Loaded Newport DLL handle.
@@ -263,7 +310,9 @@ def open_newport_devices(library: ctypes.WinDLL, product_id: int) -> int:
         int: Number of opened/connected devices reported by DLL.
 
     Raises:
-        NewportConnectionError: On non-zero driver status.
+        NewportConnectionError:
+            Raised when the driver returns a non-zero status code, which means
+            open failed (for example wrong product ID or driver/device issue).
     """
 
     opened_device_count = c_int(0)
@@ -279,32 +328,38 @@ def open_newport_devices(library: ctypes.WinDLL, product_id: int) -> int:
     return int(opened_device_count.value)
 
 
-def try_get_instrument_device_id(library: ctypes.WinDLL) -> int | None:
-    """Try to discover Newport's instrument device ID using ``GetInstrumentList``.
+def try_get_instrument_info(library: ctypes.WinDLL) -> InstrumentInfo | None:
+    """Attempt to read and return instrument details via ``GetInstrumentList``.
 
-    This function is intentionally non-fatal:
-    - If the function is unavailable in the DLL, it returns ``None``.
-    - If the call fails, it returns ``None``.
-    - If no instruments are listed, it returns ``None``.
+    Why this helper is important for non-coders:
+    - It translates low-level driver outputs into clear labels.
+    - It keeps "best effort" behavior: discovery problems are *reported* but do
+      not crash the whole script.
+    - It enables an easy-to-read print line in ``main()`` like:
+      ``GetInstrumentList -> device_id=2, model=1918, serial=13487, count=1``
 
-    In all ``None`` cases, a detailed message is printed to stderr so the user
-    understands *why* discovery did not produce a device ID.
+    Behavior summary:
+    1) If the DLL does not expose ``GetInstrumentList``, return ``None``.
+    2) If the call returns non-zero status, return ``None``.
+    3) If count is zero, return ``None``.
+    4) Otherwise return an ``InstrumentInfo`` instance.
 
     Args:
         library (ctypes.WinDLL): Loaded Newport DLL handle.
 
     Returns:
-        int | None: Discovered device ID, or None.
+        InstrumentInfo | None: Parsed instrument info when available.
     """
 
     if not hasattr(library, "GetInstrumentList"):
         print(
             "GetInstrumentList is not exported by this usbdll.dll; "
-            "cannot auto-discover Newport device_id.",
+            "cannot auto-discover Newport device details.",
             file=sys.stderr,
         )
         return None
 
+    # Each c_int acts like a mutable "box" that the DLL function fills in.
     instrument_device_id = c_int(0)
     instrument_model_number = c_int(0)
     instrument_serial_number = c_int(0)
@@ -320,7 +375,7 @@ def try_get_instrument_device_id(library: ctypes.WinDLL) -> int | None:
     if get_list_status != 0:
         print(
             "GetInstrumentList returned non-zero status "
-            f"({get_list_status}); cannot auto-discover device_id.",
+            f"({get_list_status}); cannot auto-discover device details.",
             file=sys.stderr,
         )
         return None
@@ -328,12 +383,17 @@ def try_get_instrument_device_id(library: ctypes.WinDLL) -> int | None:
     if instrument_count.value <= 0:
         print(
             "GetInstrumentList succeeded but reported zero instruments; "
-            "cannot auto-discover device_id.",
+            "cannot auto-discover device details.",
             file=sys.stderr,
         )
         return None
 
-    return int(instrument_device_id.value)
+    return InstrumentInfo(
+        device_id=int(instrument_device_id.value),
+        model=int(instrument_model_number.value),
+        serial=int(instrument_serial_number.value),
+        count=int(instrument_count.value),
+    )
 
 
 def choose_device_ids_to_query(
@@ -375,7 +435,19 @@ def query_device_ascii(
     command_text: str,
     response_buffer_bytes: int,
 ) -> str:
-    """Send one ASCII command and return stripped ASCII response text.
+    """Send one text command to one device and read back a text response.
+
+    This is the key "question/answer" step with the meter:
+    - we send a command like ``*IDN?``,
+    - the device sends back plain text,
+    - we decode the bytes to human-readable text.
+
+    Extra notes for non-coders:
+    - ``\\r\\n`` is command termination expected by many instrument protocols.
+    - ``errors='ignore'`` avoids crashes if a response contains unexpected
+      byte values; problematic bytes are skipped instead.
+    - any non-zero status from the driver is treated as a hard error so the
+      caller can print an explicit failure reason.
 
     Args:
         library (ctypes.WinDLL): Loaded Newport DLL handle.
@@ -418,11 +490,15 @@ def query_device_ascii(
 
 
 def close_newport_session_safely(library: ctypes.WinDLL | None) -> None:
-    """Attempt to close/uninitialize Newport USB system without raising errors.
+    """Best-effort shutdown helper used during program exit.
 
-    This helper is used in ``finally`` so cleanup always runs.
-    Cleanup errors are intentionally swallowed to avoid masking the original
-    operational error that triggered shutdown.
+    Why this helper exists:
+    - We always want cleanup to run, even when earlier steps fail.
+    - We do not want a cleanup exception to hide the *real* root-cause error.
+
+    Behavior:
+    - If no library was loaded, do nothing.
+    - If shutdown fails, swallow the exception intentionally.
     """
 
     if library is None:
@@ -435,15 +511,16 @@ def close_newport_session_safely(library: ctypes.WinDLL | None) -> None:
 
 
 def main() -> int:
-    """Run connect + ID query workflow and return process exit code.
+    """Orchestrate the full connection workflow and return shell exit code.
 
     High-level steps:
     1) Parse CLI input.
     2) Check basic runtime platform and print architecture info.
     3) Resolve/load DLL and configure signatures.
     4) Open devices and print count.
-    5) Determine device ID(s) and run ID query.
-    6) Exit with 0 on success, 1 on connection/command error.
+    5) Automatically print ``GetInstrumentList`` details (if available).
+    6) Determine device ID(s) and run ID query.
+    7) Exit with ``0`` on success, ``1`` on connection/command error.
     """
 
     args = build_parser().parse_args()
@@ -467,10 +544,19 @@ def main() -> int:
         opened_device_count = open_newport_devices(loaded_library, args.product_id)
         print(f"Open/connected Newport devices: {opened_device_count}")
 
-        discovered_device_id = try_get_instrument_device_id(loaded_library)
+        discovered_info = try_get_instrument_info(loaded_library)
+        if args.show_device and discovered_info is not None:
+            print(
+                "GetInstrumentList -> "
+                f"device_id={discovered_info.device_id}, "
+                f"model={discovered_info.model}, "
+                f"serial={discovered_info.serial}, "
+                f"count={discovered_info.count}"
+            )
+
         device_ids_to_query = choose_device_ids_to_query(
             explicit_device_id=args.device_id,
-            discovered_device_id=discovered_device_id,
+            discovered_device_id=(discovered_info.device_id if discovered_info else None),
             opened_device_count=opened_device_count,
         )
 
