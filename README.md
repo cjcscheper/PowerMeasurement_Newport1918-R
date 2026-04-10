@@ -92,9 +92,9 @@ python simulate_and_profile.py \
 ## Interactive window layout prototype
 - `interactive_window_layout.py`: Tkinter-based UI scaffold for the future interactive window.
   - X-axis drop-down (currently `Time`) and Y-axis drop-down (`PowerMeasurement`).
-  - Acquisition settings (sampling rate, x-axis window scale, linear/log axis mode, measure range min/max).
-  - File controls (`Browse`, `Save As`, `Load`) with OS-native file dialogs.
-  - `Start` / `Stop` controls that drive live updates in the interactive plot area (placeholder data for now).
+  - Acquisition settings (sampling time in milliseconds, x-axis max range in seconds, y-axis min/max, y-axis linear/log mode).
+  - File controls (`Browse`, `Save As`, `Load`) grouped at the bottom with OS-native file dialogs.
+  - `Start` / `Stop` controls that drive live updates in the interactive plot area (placeholder data for now), and Start changes to Running while active.
   - A dedicated black-box panel for future fitting workflow integration.
 
 Run it with:

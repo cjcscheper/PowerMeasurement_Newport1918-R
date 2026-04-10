@@ -42,13 +42,14 @@ class InteractiveLayoutApp:
 
         self.x_axis_var = tk.StringVar(value="Time")
         self.y_axis_var = tk.StringVar(value="PowerMeasurement")
-        self.sampling_rate_var = tk.StringVar(value="10")
-        self.x_scale_seconds_var = tk.StringVar(value="30")
+        self.sampling_time_ms_var = tk.StringVar(value="100")
+        self.x_axis_max_var = tk.StringVar(value="30")
         self.axis_mode_var = tk.StringVar(value="Linear")
         self.measure_min_var = tk.StringVar(value="0")
         self.measure_max_var = tk.StringVar(value="1")
         self.file_path_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="Ready. Configure settings and press Start.")
+        self.start_button: ttk.Button | None = None
 
         self._build_layout()
         self._draw_plot_frame()
@@ -97,48 +98,53 @@ class InteractiveLayoutApp:
             width=24,
         ).grid(row=0, column=3, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(controls, text="Sampling rate (Hz)").grid(row=1, column=0, sticky="w", padx=4, pady=4)
-        ttk.Entry(controls, textvariable=self.sampling_rate_var).grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+        ttk.Label(controls, text="Sampling time (ms)").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(controls, textvariable=self.sampling_time_ms_var).grid(row=1, column=1, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(controls, text="X-axis scale window (s)").grid(row=1, column=2, sticky="w", padx=4, pady=4)
-        ttk.Entry(controls, textvariable=self.x_scale_seconds_var).grid(row=1, column=3, sticky="ew", padx=4, pady=4)
+        ttk.Label(controls, text="Y-axis min").grid(row=1, column=2, sticky="w", padx=4, pady=4)
+        ttk.Entry(controls, textvariable=self.measure_min_var).grid(row=1, column=3, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(controls, text="Axis mode").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(controls, text="X-axis max (s)").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(controls, textvariable=self.x_axis_max_var).grid(row=2, column=1, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(controls, text="Y-axis max").grid(row=2, column=2, sticky="w", padx=4, pady=4)
+        ttk.Entry(controls, textvariable=self.measure_max_var).grid(row=2, column=3, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(controls, text=" ").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+
+        ttk.Label(controls, text="Y Axis mode").grid(row=3, column=2, sticky="w", padx=4, pady=4)
         ttk.Combobox(
             controls,
             textvariable=self.axis_mode_var,
             values=["Linear", "Log"],
             state="readonly",
-        ).grid(row=2, column=1, sticky="ew", padx=4, pady=4)
-
-        ttk.Label(controls, text="Measure range min").grid(row=2, column=2, sticky="w", padx=4, pady=4)
-        ttk.Entry(controls, textvariable=self.measure_min_var).grid(row=2, column=3, sticky="ew", padx=4, pady=4)
-
-        ttk.Label(controls, text="Measure range max").grid(row=3, column=0, sticky="w", padx=4, pady=4)
-        ttk.Entry(controls, textvariable=self.measure_max_var).grid(row=3, column=1, sticky="ew", padx=4, pady=4)
-
-        ttk.Label(controls, text="Save/Load file path").grid(row=4, column=0, sticky="w", padx=4, pady=4)
-        ttk.Entry(controls, textvariable=self.file_path_var).grid(row=4, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
-
-        file_buttons = ttk.Frame(controls)
-        file_buttons.grid(row=4, column=3, sticky="ew", padx=4, pady=4)
-        ttk.Button(file_buttons, text="Browse…", command=self._browse_file).pack(side=tk.LEFT)
-        ttk.Button(file_buttons, text="Save As…", command=self._save_as).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(file_buttons, text="Load…", command=self._load_file).pack(side=tk.LEFT, padx=(6, 0))
+        ).grid(row=3, column=3, sticky="ew", padx=4, pady=4)
 
         run_controls = ttk.Frame(controls)
-        run_controls.grid(row=5, column=0, columnspan=4, sticky="ew", padx=4, pady=(10, 4))
-        ttk.Button(run_controls, text="Start", command=self.start).pack(side=tk.LEFT)
+        run_controls.grid(row=4, column=0, columnspan=4, sticky="ew", padx=4, pady=(10, 4))
+        self.start_button = ttk.Button(run_controls, text="Start", command=self.start)
+        self.start_button.pack(side=tk.LEFT)
         ttk.Button(run_controls, text="Stop", command=self.stop).pack(side=tk.LEFT, padx=(8, 0))
 
         ttk.Label(controls, textvariable=self.status_var).grid(
-            row=6,
+            row=5,
             column=0,
             columnspan=4,
             sticky="w",
             padx=4,
             pady=(8, 2),
         )
+
+        file_controls = ttk.LabelFrame(left, text="Save / Load", padding=10)
+        file_controls.pack(fill=tk.X, expand=False, pady=(10, 0))
+        file_controls.columnconfigure(0, weight=1)
+        file_controls.columnconfigure(1, weight=0)
+        ttk.Entry(file_controls, textvariable=self.file_path_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        file_buttons = ttk.Frame(file_controls)
+        file_buttons.grid(row=0, column=1, sticky="e")
+        ttk.Button(file_buttons, text="Browse…", command=self._browse_file).pack(side=tk.LEFT)
+        ttk.Button(file_buttons, text="Save As…", command=self._save_as).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(file_buttons, text="Load…", command=self._load_file).pack(side=tk.LEFT, padx=(6, 0))
 
         fitting = ttk.LabelFrame(right, text="Fitting (Black Box Placeholder)", padding=10)
         fitting.pack(fill=tk.BOTH, expand=True)
@@ -166,9 +172,14 @@ class InteractiveLayoutApp:
         y1 = self.PLOT_MARGIN
 
         self.canvas.create_rectangle(x0, y1, x1, y0, outline="#606060")
+        grid_lines = 8
+        for i in range(1, grid_lines):
+            gx = x0 + (x1 - x0) * i / grid_lines
+            gy = y1 + (y0 - y1) * i / grid_lines
+            self.canvas.create_line(gx, y1, gx, y0, fill="#e8e8e8")
+            self.canvas.create_line(x0, gy, x1, gy, fill="#e8e8e8")
         self.canvas.create_text((x0 + x1) / 2, self.PLOT_HEIGHT - 14, text=self.x_axis_var.get())
         self.canvas.create_text(16, (y0 + y1) / 2, text=self.y_axis_var.get(), angle=90)
-        self.canvas.create_text(x0 + 6, y1 + 8, text="Interactive window", anchor="nw", fill="#505050")
 
         self._draw_line_data()
 
@@ -181,7 +192,7 @@ class InteractiveLayoutApp:
         x1 = self.PLOT_WIDTH - self.PLOT_MARGIN
         y1 = self.PLOT_MARGIN
 
-        window_seconds = self._safe_positive_float(self.x_scale_seconds_var.get(), default=30.0)
+        window_seconds = self._safe_positive_float(self.x_axis_max_var.get(), default=30.0)
         right_t = self._samples[-1].time_s
         left_t = max(0.0, right_t - window_seconds)
 
@@ -254,7 +265,9 @@ class InteractiveLayoutApp:
         self._running = True
         self._samples.clear()
         self._start_perf_s = time.perf_counter()
-        self.status_var.set("Acquisition started (placeholder data source).")
+        if self.start_button is not None:
+            self.start_button.configure(text="Running")
+        self.status_var.set("Acquisition running.")
         self._schedule_next_tick()
 
     def stop(self) -> None:
@@ -262,11 +275,13 @@ class InteractiveLayoutApp:
         if self._job_id is not None:
             self.root.after_cancel(self._job_id)
             self._job_id = None
+        if self.start_button is not None:
+            self.start_button.configure(text="Start")
         self.status_var.set("Acquisition stopped.")
 
     def _schedule_next_tick(self) -> None:
-        hz = self._safe_positive_float(self.sampling_rate_var.get(), default=10.0)
-        delay_ms = max(20, int(1000.0 / hz))
+        sampling_time_ms = self._safe_positive_float(self.sampling_time_ms_var.get(), default=100.0)
+        delay_ms = max(20, int(sampling_time_ms))
         self._job_id = self.root.after(delay_ms, self._tick)
 
     def _tick(self) -> None:
@@ -283,7 +298,6 @@ class InteractiveLayoutApp:
             self._samples = self._samples[-2500:]
 
         self._draw_plot_frame()
-        self.status_var.set(f"Running | t={elapsed:0.2f}s | PowerMeasurement={power:0.6f} W")
         self._schedule_next_tick()
 
     @staticmethod
