@@ -128,13 +128,21 @@ class InteractiveLayoutApp:
         ttk.Label(controls, text="X-axis max (s)").grid(row=3, column=0, sticky="w", padx=4, pady=4)
         ttk.Entry(controls, textvariable=self.x_axis_max_var).grid(row=3, column=1, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(controls, text="X Axis mode").grid(row=3, column=2, sticky="w", padx=4, pady=4)
+        ttk.Label(controls, text="X Axis mode").grid(row=4, column=0, sticky="w", padx=4, pady=4)
         ttk.Combobox(
             controls,
             textvariable=self.x_axis_mode_var,
             values=["Linear", "Log"],
             state="readonly",
-        ).grid(row=3, column=3, sticky="ew", padx=4, pady=4)
+        ).grid(row=4, column=1, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(controls, text="Y Axis mode").grid(row=4, column=2, sticky="w", padx=4, pady=4)
+        ttk.Combobox(
+            controls,
+            textvariable=self.y_axis_mode_var,
+            values=["Linear", "Log"],
+            state="readonly",
+        ).grid(row=4, column=3, sticky="ew", padx=4, pady=4)
 
         ttk.Label(controls, text=" ").grid(row=4, column=0, sticky="w", padx=4, pady=4)
 
@@ -225,29 +233,17 @@ class InteractiveLayoutApp:
             if logy:
                 y_data = np.maximum(y_data, 1e-6)
 
-        new_fig, new_ax = plot_1d(
-            x_data=x_data,
-            y_data=y_data,
-            colors=["#1368ce"],
-            line_show=True,
-            scatter_show=False,
-            xlim=(x_min, x_max),
-            ylim=(y_min, y_max),
-            xlabel=self.x_axis_var.get(),
-            ylabel=self.y_axis_var.get(),
-            title="",
-            legend_show=False,
-            grid_show=True,
-            fig_show=False,
-            logx=logx,
-            logy=logy,
-        )
-        new_fig.set_size_inches(9.5, 4.5)
-        self.canvas.figure.clf()
-        self.fig = new_fig
-        self.ax = new_ax
-        self.canvas.figure = self.fig
-        self.canvas.draw()
+        self.ax.clear()
+        self.ax.plot(x_data, y_data, color="#1368ce", linewidth=2)
+        self.ax.set_xlabel(self.x_axis_var.get())
+        self.ax.set_ylabel(self.y_axis_var.get())
+        self.ax.set_xlim((x_min, x_max))
+        self.ax.set_ylim((y_min, y_max))
+        self.ax.set_xscale("log" if logx else "linear")
+        self.ax.set_yscale("log" if logy else "linear")
+        self.ax.grid(True)
+        self.fig.set_size_inches(9.5, 4.5)
+        self.canvas.draw_idle()
 
     def _browse_file(self) -> None:
         initial = self.file_path_var.get().strip() or str(Path.cwd())
