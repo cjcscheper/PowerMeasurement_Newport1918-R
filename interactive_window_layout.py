@@ -144,6 +144,16 @@ class InteractiveLayoutApp:
             state="readonly",
         ).grid(row=4, column=3, sticky="ew", padx=4, pady=4)
 
+        ttk.Label(controls, text=" ").grid(row=4, column=0, sticky="w", padx=4, pady=4)
+
+        ttk.Label(controls, text="Y Axis mode").grid(row=4, column=2, sticky="w", padx=4, pady=4)
+        ttk.Combobox(
+            controls,
+            textvariable=self.y_axis_mode_var,
+            values=["Linear", "Log"],
+            state="readonly",
+        ).grid(row=4, column=3, sticky="ew", padx=4, pady=4)
+
         run_controls = ttk.Frame(controls)
         run_controls.grid(row=5, column=0, columnspan=4, sticky="ew", padx=4, pady=(10, 4))
         self.start_button = ttk.Button(run_controls, text="Start", command=self.start)
