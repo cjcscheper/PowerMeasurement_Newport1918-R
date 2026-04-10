@@ -1,0 +1,70 @@
+# cjc_style.mplstyle
+#
+# Custom Matplotlib style sheet for scientific reports.
+#
+
+# ==============================================================================
+# FIGURE AND FONT SETTINGS (Global)
+# ==============================================================================
+
+# FIGURE (Size and Aspect ratio set in python function)
+figure.dpi: 100
+
+# FONT FAMILY (Sans-Serif - Helvetica/Arial/DejaVu Sans are excellent report choices)
+font.family: sans-serif
+font.sans-serif: DejaVu Sans, Helvetica, Arial, Bitstream Vera Sans, Lucida Grande, Verdana, Geneva, sans-serif
+
+# FONT SIZES & WEIGHTS
+font.size: 12
+axes.titlesize: 16
+axes.titlepad: 20
+axes.titleweight: normal
+axes.labelsize: 12
+legend.fontsize: 12
+
+# LINES
+lines.linewidth: 1.6
+lines.markersize: 6
+
+# ==============================================================================
+# AXES & GRID SETTINGS
+# ==============================================================================
+
+axes.spines.top: True
+axes.spines.right: True
+axes.linewidth: 1.0 # Axis line thickness
+axes.grid: False
+axes.grid.which: both
+grid.alpha: 0.3
+
+# ==============================================================================
+# X-TICK SETTINGS
+# ==============================================================================
+
+xtick.major.size: 4
+xtick.top: True
+xtick.bottom: True
+xtick.major.width: 0.8
+xtick.minor.visible: True
+xtick.minor.size: 2
+xtick.minor.width: 0.8
+xtick.direction: in
+xtick.major.pad: 5
+xtick.labelsize: 9
+# xtick.labelweight: 600 # NOTE: Issue, can be implemented in Python Function
+
+# ==============================================================================
+# Y-TICK SETTINGS
+# ==============================================================================
+
+ytick.major.size: 4
+ytick.left: True
+ytick.right: True
+ytick.major.width: 0.8
+ytick.minor.visible: True
+ytick.minor.size: 2
+ytick.minor.width: 0.8
+ytick.direction: in
+ytick.major.pad: 5
+ytick.labelsize: 9
+# ytick.labelweight: 600 # NOTE: Issue, can be implemented in Python Function
