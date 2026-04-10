@@ -10,9 +10,15 @@ from __future__ import annotations
 import math
 import time
 import tkinter as tk
+
+import numpy as np
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, ttk
+
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+from visualization import plot_1d
 
 
 @dataclass
@@ -41,10 +47,12 @@ class InteractiveLayoutApp:
         self._job_id: str | None = None
 
         self.x_axis_var = tk.StringVar(value="Time")
-        self.y_axis_var = tk.StringVar(value="PowerMeasurement")
+        self.y_axis_var = tk.StringVar(value="Test")
         self.sampling_time_ms_var = tk.StringVar(value="100")
+        self.x_axis_min_var = tk.StringVar(value="0")
         self.x_axis_max_var = tk.StringVar(value="30")
-        self.axis_mode_var = tk.StringVar(value="Linear")
+        self.x_axis_mode_var = tk.StringVar(value="Linear")
+        self.y_axis_mode_var = tk.StringVar(value="Linear")
         self.measure_min_var = tk.StringVar(value="0")
         self.measure_max_var = tk.StringVar(value="1")
         self.file_path_var = tk.StringVar(value="")
@@ -52,7 +60,7 @@ class InteractiveLayoutApp:
         self.start_button: ttk.Button | None = None
 
         self._build_layout()
-        self._draw_plot_frame()
+        self._render_plot()
 
     def _build_layout(self) -> None:
         main = ttk.Frame(self.root, padding=12)
@@ -64,15 +72,22 @@ class InteractiveLayoutApp:
         right = ttk.Frame(main)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(14, 0))
 
-        self.canvas = tk.Canvas(
-            left,
-            width=self.PLOT_WIDTH,
-            height=self.PLOT_HEIGHT,
-            background="white",
-            highlightthickness=1,
-            highlightbackground="#b0b0b0",
+        plot_frame = ttk.Frame(left)
+        plot_frame.pack(fill=tk.BOTH, expand=False)
+        self.fig, self.ax = plot_1d(
+            x_data=np.array([0.0, 1.0]),
+            y_data=np.array([0.0, 1.0]),
+            xlabel=self.x_axis_var.get(),
+            ylabel=self.y_axis_var.get(),
+            title="",
+            legend_show=False,
+            grid_show=True,
+            fig_show=False,
         )
-        self.canvas.pack(fill=tk.BOTH, expand=False)
+        self.fig.set_size_inches(9.5, 4.5)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
+        self.canvas.get_tk_widget().configure(highlightthickness=1, highlightbackground="#b0b0b0")
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=False)
 
         controls = ttk.LabelFrame(left, text="Acquisition and Axis Controls", padding=10)
         controls.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
@@ -93,7 +108,7 @@ class InteractiveLayoutApp:
         ttk.Combobox(
             controls,
             textvariable=self.y_axis_var,
-            values=["PowerMeasurement"],
+            values=["Test"],
             state="readonly",
             width=24,
         ).grid(row=0, column=3, sticky="ew", padx=4, pady=4)
@@ -104,30 +119,39 @@ class InteractiveLayoutApp:
         ttk.Label(controls, text="Y-axis min").grid(row=1, column=2, sticky="w", padx=4, pady=4)
         ttk.Entry(controls, textvariable=self.measure_min_var).grid(row=1, column=3, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(controls, text="X-axis max (s)").grid(row=2, column=0, sticky="w", padx=4, pady=4)
-        ttk.Entry(controls, textvariable=self.x_axis_max_var).grid(row=2, column=1, sticky="ew", padx=4, pady=4)
+        ttk.Label(controls, text="X-axis min (s)").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(controls, textvariable=self.x_axis_min_var).grid(row=2, column=1, sticky="ew", padx=4, pady=4)
 
         ttk.Label(controls, text="Y-axis max").grid(row=2, column=2, sticky="w", padx=4, pady=4)
         ttk.Entry(controls, textvariable=self.measure_max_var).grid(row=2, column=3, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(controls, text=" ").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(controls, text="X-axis max (s)").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(controls, textvariable=self.x_axis_max_var).grid(row=3, column=1, sticky="ew", padx=4, pady=4)
 
-        ttk.Label(controls, text="Y Axis mode").grid(row=3, column=2, sticky="w", padx=4, pady=4)
+        ttk.Label(controls, text="X Axis mode").grid(row=4, column=0, sticky="w", padx=4, pady=4)
         ttk.Combobox(
             controls,
-            textvariable=self.axis_mode_var,
+            textvariable=self.x_axis_mode_var,
             values=["Linear", "Log"],
             state="readonly",
-        ).grid(row=3, column=3, sticky="ew", padx=4, pady=4)
+        ).grid(row=4, column=1, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(controls, text="Y Axis mode").grid(row=4, column=2, sticky="w", padx=4, pady=4)
+        ttk.Combobox(
+            controls,
+            textvariable=self.y_axis_mode_var,
+            values=["Linear", "Log"],
+            state="readonly",
+        ).grid(row=4, column=3, sticky="ew", padx=4, pady=4)
 
         run_controls = ttk.Frame(controls)
-        run_controls.grid(row=4, column=0, columnspan=4, sticky="ew", padx=4, pady=(10, 4))
+        run_controls.grid(row=5, column=0, columnspan=4, sticky="ew", padx=4, pady=(10, 4))
         self.start_button = ttk.Button(run_controls, text="Start", command=self.start)
         self.start_button.pack(side=tk.LEFT)
         ttk.Button(run_controls, text="Stop", command=self.stop).pack(side=tk.LEFT, padx=(8, 0))
 
         ttk.Label(controls, textvariable=self.status_var).grid(
-            row=5,
+            row=6,
             column=0,
             columnspan=4,
             sticky="w",
@@ -164,71 +188,52 @@ class InteractiveLayoutApp:
             font=("TkDefaultFont", 10, "bold"),
         )
 
-    def _draw_plot_frame(self) -> None:
-        self.canvas.delete("all")
-        x0 = self.PLOT_MARGIN
-        y0 = self.PLOT_HEIGHT - self.PLOT_MARGIN
-        x1 = self.PLOT_WIDTH - self.PLOT_MARGIN
-        y1 = self.PLOT_MARGIN
+    def _render_plot(self) -> None:
+        x_data = np.array([sample.time_s for sample in self._samples], dtype=float)
+        y_data = np.array([sample.power_w for sample in self._samples], dtype=float)
 
-        self.canvas.create_rectangle(x0, y1, x1, y0, outline="#606060")
-        grid_lines = 8
-        for i in range(1, grid_lines):
-            gx = x0 + (x1 - x0) * i / grid_lines
-            gy = y1 + (y0 - y1) * i / grid_lines
-            self.canvas.create_line(gx, y1, gx, y0, fill="#e8e8e8")
-            self.canvas.create_line(x0, gy, x1, gy, fill="#e8e8e8")
-        self.canvas.create_text((x0 + x1) / 2, self.PLOT_HEIGHT - 14, text=self.x_axis_var.get())
-        self.canvas.create_text(16, (y0 + y1) / 2, text=self.y_axis_var.get(), angle=90)
+        logx = self.x_axis_mode_var.get().strip().lower() == "log"
+        logy = self.y_axis_mode_var.get().strip().lower() == "log"
 
-        self._draw_line_data()
+        x_min = self._safe_float(self.x_axis_min_var.get(), default=0.0)
+        x_max = self._safe_float(self.x_axis_max_var.get(), default=30.0)
+        y_min = self._safe_float(self.measure_min_var.get(), default=0.0)
+        y_max = self._safe_float(self.measure_max_var.get(), default=1.0)
 
-    def _draw_line_data(self) -> None:
-        if len(self._samples) < 2:
-            return
+        if x_max <= x_min:
+            x_max = x_min + 1.0
+        if y_max <= y_min:
+            y_max = y_min + 1.0
 
-        x0 = self.PLOT_MARGIN
-        y0 = self.PLOT_HEIGHT - self.PLOT_MARGIN
-        x1 = self.PLOT_WIDTH - self.PLOT_MARGIN
-        y1 = self.PLOT_MARGIN
+        if logx:
+            x_min = max(x_min, 1e-6)
+            x_max = max(x_max, x_min * 10)
+            positive_mask = x_data > 0
+            x_data = x_data[positive_mask]
+            y_data = y_data[positive_mask]
 
-        window_seconds = self._safe_positive_float(self.x_axis_max_var.get(), default=30.0)
-        right_t = self._samples[-1].time_s
-        left_t = max(0.0, right_t - window_seconds)
+        if logy:
+            y_min = max(y_min, 1e-6)
+            y_max = max(y_max, y_min * 10)
+            y_data = np.maximum(y_data, 1e-6)
 
-        visible = [s for s in self._samples if s.time_s >= left_t]
-        if len(visible) < 2:
-            return
+        if x_data.size == 0:
+            x_data = np.array([x_min, x_max], dtype=float)
+            y_data = np.array([0.0, 1.0], dtype=float)
+            if logy:
+                y_data = np.maximum(y_data, 1e-6)
 
-        min_y = self._safe_float(self.measure_min_var.get(), default=min(s.power_w for s in visible))
-        max_y = self._safe_float(self.measure_max_var.get(), default=max(s.power_w for s in visible))
-        if max_y <= min_y:
-            max_y = min_y + 1.0
-
-        points: list[float] = []
-        log_mode = self.axis_mode_var.get().strip().lower() == "log"
-
-        for sample in visible:
-            tx = (sample.time_s - left_t) / max(window_seconds, 1e-9)
-            px = x0 + tx * (x1 - x0)
-
-            value = sample.power_w
-            lo, hi = min_y, max_y
-            if log_mode:
-                value = max(value, 1e-12)
-                lo = max(lo, 1e-12)
-                hi = max(hi, lo * 10)
-                value = math.log10(value)
-                lo = math.log10(lo)
-                hi = math.log10(hi)
-
-            ty = (value - lo) / (hi - lo)
-            ty = min(1.0, max(0.0, ty))
-            py = y0 - ty * (y0 - y1)
-            points.extend([px, py])
-
-        if len(points) >= 4:
-            self.canvas.create_line(*points, fill="#1368ce", width=2, smooth=True)
+        self.ax.clear()
+        self.ax.plot(x_data, y_data, color="#1368ce", linewidth=2)
+        self.ax.set_xlabel(self.x_axis_var.get())
+        self.ax.set_ylabel(self.y_axis_var.get())
+        self.ax.set_xlim((x_min, x_max))
+        self.ax.set_ylim((y_min, y_max))
+        self.ax.set_xscale("log" if logx else "linear")
+        self.ax.set_yscale("log" if logy else "linear")
+        self.ax.grid(True)
+        self.fig.set_size_inches(9.5, 4.5)
+        self.canvas.draw_idle()
 
     def _browse_file(self) -> None:
         initial = self.file_path_var.get().strip() or str(Path.cwd())
@@ -289,15 +294,13 @@ class InteractiveLayoutApp:
             return
 
         elapsed = time.perf_counter() - self._start_perf_s
-        baseline = self._safe_float(self.measure_min_var.get(), default=0.0)
-        span = max(0.1, self._safe_float(self.measure_max_var.get(), default=1.0) - baseline)
-        power = baseline + 0.5 * span + 0.45 * span * math.sin(elapsed * 1.5)
+        power = 0.5 + 0.5 * math.sin(elapsed * 1.5)
         self._samples.append(SamplePoint(time_s=elapsed, power_w=power))
 
         if len(self._samples) > 5000:
             self._samples = self._samples[-2500:]
 
-        self._draw_plot_frame()
+        self._render_plot()
         self._schedule_next_tick()
 
     @staticmethod
